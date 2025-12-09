@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { billAPI } from '../services/api';
-import { FileText, TrendingUp, DollarSign, Clock } from 'lucide-react';
+import { FileText, TrendingUp, IndianRupee, Clock } from 'lucide-react';
 import { formatCurrency, formatDate } from '../utils/helpers';
 import toast from 'react-hot-toast';
 
@@ -61,7 +61,7 @@ const Dashboard = () => {
     {
       title: 'Total Revenue',
       value: formatCurrency(stats.totalRevenue),
-      icon: DollarSign,
+      icon: IndianRupee,
       color: 'bg-purple-500',
     },
   ];

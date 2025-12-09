@@ -18,17 +18,27 @@ const SearchableDropdown = ({
   const dropdownRef = useRef(null);
 
   useEffect(() => {
+    console.log("🔍 SearchableDropdown - searchTerm:", searchTerm);
+    console.log("🔍 SearchableDropdown - options prop:", options);
+    
     if (searchTerm) {
       if (onSearch) {
+        // Call external search
         onSearch(searchTerm);
+        // ✅ FIX: Update filteredOptions with the options prop (API results)
+        setFilteredOptions(options || []);
+        console.log("🔍 After API search, filteredOptions set to:", options);
       } else {
+        // Local filtering
         const filtered = (options || []).filter((option) =>
           option.label.toLowerCase().includes(searchTerm.toLowerCase())
         );
         setFilteredOptions(filtered);
+        console.log("🔍 Local filter, filteredOptions:", filtered);
       }
     } else {
       setFilteredOptions(options || []);
+      console.log("🔍 No search term, showing all options");
     }
   }, [searchTerm, options, onSearch]);
 

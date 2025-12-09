@@ -76,8 +76,23 @@ const ServicesFormPage = () => {
   useEffect(() => {
     if (location.state?.editBill) {
       const bill = location.state.editBill;
+      console.log("📝 Edit mode - Loading bill:", bill.bill_no);
+      
       setEditMode(true);
       setEditBillId(bill.id);
+      
+      // Wait for master data to load first
+      if (clients.length === 0) {
+        console.log("⏳ Waiting for clients to load...");
+        return; // Don't set form data yet
+      }
+      
+      console.log("✅ Clients loaded, setting form data");
+      console.log("📋 Bill client_id:", bill.client_id);
+      
+      // Check if client exists in loaded clients
+      const clientExists = clients.find(c => c.id === bill.client_id);
+      console.log("🔍 Client found in list:", clientExists?.client_name);
       
       // Set form data
       setFormData({
@@ -91,7 +106,7 @@ const ServicesFormPage = () => {
       // Set services
       if (bill.services && bill.services.length > 0) {
         setServices(bill.services.map(s => ({
-          id: s.id, // Keep service ID for deletion tracking
+          id: s.id,
           particulars_id: s.particulars_id.toString(),
           particulars_other: s.particulars_other || '',
           service_date: s.service_date,
@@ -103,7 +118,7 @@ const ServicesFormPage = () => {
 
       toast.success('Editing DRAFT bill: ' + bill.bill_no);
     }
-  }, [location.state]);
+  }, [location.state, clients]); 
 
   const handleAddService = () => {
     setServices([
@@ -133,23 +148,24 @@ const ServicesFormPage = () => {
     setServices(newServices);
   };
 
-  // const handleSearchClients = debounce(async (searchTerm) => {
-  //   try {
-  //     const response = await clientAPI.searchClients(searchTerm);
-  //     setClients(response.data.data);
-  //   } catch (error) {
-  //     console.error('Failed to search clients:', error);
-  //   }
-  // }, 300);
   const handleSearchClients = debounce(async (searchTerm) => {
-  if (!searchTerm || searchTerm.length < 2) return;
-  
-  try {
-    const response = await clientAPI.searchClients(searchTerm);
-    setClients(response.data.data);
-  } catch (error) {
-    console.error('Failed to search clients:', error);
-  }
+    console.log("🔎 ServicesFormPage - Searching for:", searchTerm);
+    
+    if (!searchTerm || searchTerm.length < 2) {
+      console.log("🔎 Search term too short, skipping");
+      return;
+    }
+    
+    try {
+      const response = await clientAPI.searchClients(searchTerm);
+      console.log("🔎 API Response:", response.data);
+      console.log("🔎 Found clients:", response.data.data);
+      
+      setClients(response.data.data);
+      console.log("🔎 Updated clients state, count:", response.data.data.length);
+    } catch (error) {
+      console.error('❌ Failed to search clients:', error);
+    }
   }, 300);
 
   const handleCreateClient = (clientName) => {
@@ -190,6 +206,8 @@ const ServicesFormPage = () => {
         
         // ✅ AUTO-SET THE NEW CLIENT ID (now using correct formData)
         setFormData(prev => ({ ...prev, client_id: newClient.id.toString() }));
+        console.log("✅ New client created! ID:", newClient.id, "Name:", newClient.client_name);
+        console.log("✅ FormData updated with client_id:", newClient.id.toString());
         
         toast.success('Client created successfully');
       } else {
@@ -198,6 +216,8 @@ const ServicesFormPage = () => {
         
         // ✅ AUTO-SET THE NEW CLIENT ID (now using correct formData)
         setFormData(prev => ({ ...prev, client_id: newClient.id.toString() }));
+        console.log("✅ New client created! ID:", newClient.id, "Name:", newClient.client_name);
+        console.log("✅ FormData updated with client_id:", newClient.id.toString());
         
         toast.success('Client created successfully');
       }
@@ -301,7 +321,7 @@ const ServicesFormPage = () => {
   // Prepare options for dropdowns
   const headerOptions = headers.map((h) => ({ value: h.id, label: h.company_name }));
   const particularsOptions = particulars.map((p) => ({ value: p.id, label: p.service_name }));
-  const clientOptions = clients.map((c) => ({ value: c.id, label: c.client_name }));
+  const clientOptions = clients.map((c) => ({ value: c.id.toString(), label: c.client_name }));
   const gstRateOptions = gstRates.map((g) => ({
     value: g.id,
     label: `${g.rate_percentage}% - ${g.description}`,
@@ -515,22 +535,34 @@ const ServicesFormPage = () => {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Contact Person
+              Contact Person <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
               name="contact_person"
+              required
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              placeholder="Enter contact person name"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Phone <span className="text-red-500">*</span>
+            </label>
             <input
               type="tel"
               name="phone"
+              required
+              pattern="[0-9]{10}"
+              maxLength={10}
+              onInput={(e) => {
+                e.target.value = e.target.value.replace(/[^0-9]/g, '');
+              }}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              placeholder="Enter 10 digit phone number"
             />
+            <p className="text-xs text-gray-500 mt-1">Must be exactly 10 digits</p>
           </div>
 
           <div>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Plus, Save } from 'lucide-react';
+import { Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ServiceRow from '../components/forms/ServiceRow';
 import Dropdown from '../components/common/Dropdown';
@@ -35,6 +36,8 @@ const ServicesFormPage = () => {
     notes: '',
   });
 
+  const [billNumberPreview, setBillNumberPreview] = useState('');
+
   const [services, setServices] = useState([
     {
       particulars_id: '',
@@ -50,6 +53,25 @@ const ServicesFormPage = () => {
   useEffect(() => {
     loadMasterData();
   }, []);
+
+  // Preview bill number when company or date changes
+  useEffect(() => {
+    if (formData.header_id && formData.bill_date && !editMode) {
+      previewBillNumber();
+    }
+  }, [formData.header_id, formData.bill_date, editMode]);
+
+  const previewBillNumber = async () => {
+    try {
+      const response = await billAPI.previewBillNumber({
+        header_id: formData.header_id,
+        bill_date: formData.bill_date.toISOString().split('T')[0]
+      });
+      setBillNumberPreview(response.data.data.next_bill_no);
+    } catch (error) {
+      console.error('Failed to preview bill number:', error);
+    }
+  };
 
   const loadMasterData = async () => {
     try {
@@ -349,6 +371,17 @@ const ServicesFormPage = () => {
               required
             />
 
+            {/* Bill Number Preview */}
+            {billNumberPreview && !editMode && (
+              <div className="flex items-center space-x-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+                <Eye className="w-4 h-4 text-blue-600" />
+                <div>
+                  <p className="text-xs text-blue-600 font-medium">Next Bill Number</p>
+                  <p className="text-sm font-bold text-blue-900">{billNumberPreview}</p>
+                </div>
+              </div>
+            )}
+
             {/* Bill Date */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -368,7 +401,7 @@ const ServicesFormPage = () => {
 
             {/* Client Name */}
             <SearchableDropdown
-              label="Client Name"
+              label="Client Name (Optional)"
               value={formData.client_id}
               onChange={(value) => setFormData({ ...formData, client_id: value })}
               options={clientOptions}
@@ -510,7 +543,7 @@ const ServicesFormPage = () => {
         </div>
       </form>
 
-      {/* New Client Modal */}
+{/* New Client Modal */}
       <Modal
         isOpen={showClientModal}
         onClose={() => {
@@ -518,63 +551,151 @@ const ServicesFormPage = () => {
           setNewClientName('');
         }}
         title="Add New Client"
+        size="lg"
       >
         <form onSubmit={handleSaveNewClient} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Client Name <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              name="client_name"
-              defaultValue={newClientName}
-              required
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Client Name */}
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Client Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                name="client_name"
+                defaultValue={newClientName}
+                required
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+
+            {/* Contact Person */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Contact Person <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                name="contact_person"
+                required
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="Enter contact person name"
+              />
+            </div>
+
+            {/* Phone */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Phone <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="tel"
+                name="phone"
+                required
+                pattern="[0-9]{10}"
+                maxLength={10}
+                onInput={(e) => {
+                  e.target.value = e.target.value.replace(/[^0-9]/g, '');
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="10 digit phone number"
+              />
+            </div>
+
+            {/* Email */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <input
+                type="email"
+                name="email"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="email@example.com"
+              />
+            </div>
+
+            {/* GSTIN */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                GSTIN <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                name="gstin"
+                required
+                pattern="[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}"
+                maxLength={15}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="27AABCU9603R1ZM"
+              />
+              <p className="text-xs text-gray-500 mt-1">15 characters (e.g., 27AABCU9603R1ZM)</p>
+            </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Contact Person <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              name="contact_person"
-              required
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-              placeholder="Enter contact person name"
-            />
+          {/* Address Section */}
+          <div className="pt-4 border-t">
+            <h4 className="text-sm font-semibold text-gray-700 mb-3">Address Details (Optional)</h4>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Address Line 1
+                </label>
+                <input
+                  type="text"
+                  name="address_line1"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="Building/Street"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Address Line 2
+                </label>
+                <input
+                  type="text"
+                  name="address_line2"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="Area/Landmark"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
+                  <input
+                    type="text"
+                    name="city"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    placeholder="Mumbai"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
+                  <input
+                    type="text"
+                    name="state"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    placeholder="Maharashtra"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Pincode</label>
+                  <input
+                    type="text"
+                    name="pincode"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    placeholder="400001"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Phone <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="tel"
-              name="phone"
-              required
-              pattern="[0-9]{10}"
-              maxLength={10}
-              onInput={(e) => {
-                e.target.value = e.target.value.replace(/[^0-9]/g, '');
-              }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-              placeholder="Enter 10 digit phone number"
-            />
-            <p className="text-xs text-gray-500 mt-1">Must be exactly 10 digits</p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-            <input
-              type="email"
-              name="email"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            />
-          </div>
-
-          <div className="flex justify-end space-x-3 mt-6">
+          <div className="flex justify-end space-x-3 pt-4">
             <button
               type="button"
               onClick={() => {

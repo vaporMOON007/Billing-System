@@ -1,11 +1,16 @@
 import { useState, useRef, useEffect } from 'react';
+import QRCode from 'qrcode.react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Search, Download, Mail, MessageSquare, Printer, Eye, ChevronLeft, ChevronRight, Edit } from 'lucide-react';
+import { Search, Download, Mail, MessageSquare, Printer, Eye, ChevronLeft, ChevronRight, Edit, DollarSign, Info } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { billAPI } from '../services/api';
+import { billAPI, paymentAPI } from '../services/api';
 import { formatCurrency, formatDate } from '../utils/helpers';
+import { useAuth } from '../context/AuthContext';
+import MarkPaymentModal from '../components/modals/MarkPaymentModal';
+import PaymentHistoryPopup from '../components/modals/PaymentHistoryPopup';
 import Modal from '../components/common/Modal';
 import Dropdown from '../components/common/Dropdown';
+import DatePicker from 'react-datepicker';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -13,6 +18,7 @@ const PrintBillPage = () => {
   const location = useLocation();
   const printRef = useRef();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   // States
   const [view, setView] = useState('list'); // 'list' or 'preview'
@@ -29,12 +35,21 @@ const PrintBillPage = () => {
   // Filters
   const [filters, setFilters] = useState({
     status: '',
+    payment_status: '',
     searchTerm: '',
+    date_from: '',
+    date_to: '',
+    header_id: '',
+    client_id: '',
+    created_by: ''
   });
   
   // Modals
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [recipientEmail, setRecipientEmail] = useState('');
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showPaymentHistory, setShowPaymentHistory] = useState(false);
+  const [selectedBillForPayment, setSelectedBillForPayment] = useState(null);
 
   useEffect(() => {
     if (location.state?.billNo) {
@@ -52,6 +67,12 @@ const PrintBillPage = () => {
         limit: billsPerPage,
         offset,
         ...(filters.status && { status: filters.status }),
+        ...(filters.payment_status && { payment_status: filters.payment_status }),
+        ...(filters.date_from && { date_from: filters.date_from }),
+        ...(filters.date_to && { date_to: filters.date_to }),
+        ...(filters.header_id && { header_id: filters.header_id }),
+        ...(filters.client_id && { client_id: filters.client_id }),
+        ...(filters.created_by && { created_by: filters.created_by })
       };
       
       const response = await billAPI.getAllBills(params);
@@ -216,21 +237,114 @@ const PrintBillPage = () => {
       {view === 'list' ? (
         <>
           {/* Search & Filters */}
-          <div className="bg-white rounded-lg shadow p-6 mb-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Search by Bill Number
-                </label>
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    value={filters.searchTerm}
-                    onChange={(e) => setFilters({ ...filters, searchTerm: e.target.value })}
-                    onKeyPress={(e) => e.key === 'Enter' && filters.searchTerm && handleSearchByNumber(filters.searchTerm)}
-                    placeholder="e.g., INV-2425-0001"
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+            <div className="bg-white rounded-lg shadow p-6 mb-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Filters</h3>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Search by Bill Number
+                  </label>
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      value={filters.searchTerm}
+                      onChange={(e) => setFilters({ ...filters, searchTerm: e.target.value })}
+                      onKeyPress={(e) => e.key === 'Enter' && filters.searchTerm && handleSearchByNumber(filters.searchTerm)}
+                      placeholder="e.g., INV-ABC-001"
+                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                    <button
+                      onClick={() => filters.searchTerm && handleSearchByNumber(filters.searchTerm)}
+                      className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                    >
+                      <Search className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Date From
+                  </label>
+                  <DatePicker
+                    selected={filters.date_from ? new Date(filters.date_from) : null}
+                    onChange={(date) => setFilters({ ...filters, date_from: date?.toISOString().split('T')[0] || '' })}
+                    dateFormat="dd/MM/yyyy"
+                    placeholderText="From date"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    isClearable
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Date To
+                  </label>
+                  <DatePicker
+                    selected={filters.date_to ? new Date(filters.date_to) : null}
+                    onChange={(date) => setFilters({ ...filters, date_to: date?.toISOString().split('T')[0] || '' })}
+                    dateFormat="dd/MM/yyyy"
+                    placeholderText="To date"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    isClearable
+                  />
+                </div>
+
+                <Dropdown
+                  label="Status"
+                  value={filters.status}
+                  onChange={(value) => {
+                    setFilters({ ...filters, status: value });
+                    setCurrentPage(1);
+                  }}
+                  options={statusOptions}
+                />
+
+                <Dropdown
+                  label="Payment Status"
+                  value={filters.payment_status}
+                  onChange={(value) => {
+                    setFilters({ ...filters, payment_status: value });
+                    setCurrentPage(1);
+                  }}
+                  options={[
+                    { value: '', label: 'All' },
+                    { value: 'UNPAID', label: 'Unpaid' },
+                    { value: 'PARTIAL', label: 'Partial' },
+                    { value: 'PAID', label: 'Paid' }
+                  ]}
+                />
+              </div>
+              
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => {
+                    setFilters({
+                      status: '',
+                      payment_status: '',
+                      searchTerm: '',
+                      date_from: '',
+                      date_to: '',
+                      header_id: '',
+                      client_id: '',
+                      created_by: ''
+                    });
+                    setCurrentPage(1);
+                  }}
+                  className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Clear Filters
+                </button>
+                <button
+                  onClick={() => {
+                    setCurrentPage(1);
+                    loadBills();
+                  }}
+                  className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                >
+                  Apply Filters
+                </button>
+              </div>
                   <button
                     onClick={() => filters.searchTerm && handleSearchByNumber(filters.searchTerm)}
                     className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
@@ -277,13 +391,22 @@ const PrintBillPage = () => {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                         Created By
                       </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Amount
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Status
                       </th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Payment
+                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Paid
+                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Balance
+                      </th>
+                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Actions
                       </th>
                     </tr>
@@ -309,6 +432,9 @@ const PrintBillPage = () => {
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium text-right">
                           {formatCurrency(bill.total_invoice_value)}
                         </td>
+<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium text-right">
+                          {formatCurrency(bill.total_invoice_value)}
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span
                             className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -322,13 +448,60 @@ const PrintBillPage = () => {
                             {bill.status}
                           </span>
                         </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center space-x-1">
+                            <span
+                              className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                bill.payment_status === 'PAID'
+                                  ? 'bg-green-100 text-green-800'
+                                  : bill.payment_status === 'PARTIAL'
+                                  ? 'bg-yellow-100 text-yellow-800'
+                                  : 'bg-red-100 text-red-800'
+                              }`}
+                            >
+                              {bill.payment_status || 'UNPAID'}
+                            </span>
+                            {bill.payment_status && bill.payment_status !== 'UNPAID' && (
+                              <button
+                                onClick={() => {
+                                  setSelectedBillForPayment(bill);
+                                  setShowPaymentHistory(true);
+                                }}
+                                className="text-blue-600 hover:text-blue-800"
+                              >
+                                <Info className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-medium text-right">
+                          {formatCurrency(bill.total_paid || 0)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-medium text-right">
+                          {formatCurrency((bill.total_invoice_value || 0) - (bill.total_paid || 0))}
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-center">
-                          <button
-                            onClick={() => handleViewBill(bill)}
-                            className="text-primary-600 hover:text-primary-900"
-                          >
-                            <Eye className="w-5 h-5" />
-                          </button>
+                          <div className="flex items-center justify-center space-x-2">
+                            <button
+                              onClick={() => handleViewBill(bill)}
+                              className="text-primary-600 hover:text-primary-900"
+                              title="View Bill"
+                            >
+                              <Eye className="w-5 h-5" />
+                            </button>
+                            {user?.role === 'CA' && bill.payment_status !== 'PAID' && (
+                              <button
+                                onClick={() => {
+                                  setSelectedBillForPayment(bill);
+                                  setShowPaymentModal(true);
+                                }}
+                                className="text-green-600 hover:text-green-900"
+                                title="Mark Payment"
+                              >
+                                <DollarSign className="w-5 h-5" />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -420,6 +593,19 @@ const PrintBillPage = () => {
                 </button>
                 )}
               </div>
+
+                {user?.role === 'CA' && selectedBill.payment_status !== 'PAID' && (
+                  <button
+                    onClick={() => {
+                      setSelectedBillForPayment(selectedBill);
+                      setShowPaymentModal(true);
+                    }}
+                    className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    <DollarSign className="w-4 h-4" />
+                    <span>Mark Payment</span>
+                  </button>
+                )}
             </div>
 
             {/* Bill Preview */}
@@ -448,7 +634,7 @@ const PrintBillPage = () => {
                   </div>
                   <div className="text-right">
                     <h2 className="text-2xl font-bold text-primary-600">INVOICE</h2>
-                    <span className={`inline-block mt-2 px-3 py-1 text-xs font-semibold rounded-full ${
+                    <span className={`no-print inline-block mt-2 px-3 py-1 text-xs font-semibold rounded-full ${
                       selectedBill.status === 'DRAFT' 
                         ? 'bg-yellow-100 text-yellow-800' 
                         : selectedBill.status === 'FINALIZED'
@@ -584,7 +770,7 @@ const PrintBillPage = () => {
               {/* Bank Details & QR Code */}
               <div className="border-t-2 border-gray-300 pt-6 mt-6">
                 <div className="flex justify-between items-start">
-                  <div>
+                  <div className="flex-1">
                     <h3 className="text-lg font-semibold text-gray-900 mb-3">Bank Details</h3>
                     <p className="text-sm text-gray-700">
                       <span className="font-semibold">Bank Name:</span> {selectedBill.bank_name}
@@ -607,7 +793,18 @@ const PrintBillPage = () => {
                       </p>
                     )}
                   </div>
-                  {selectedBill.qr_code_image && (
+                  {selectedBill.upi_id ? (
+                    <div className="text-center">
+                      <p className="text-sm font-semibold text-gray-700 mb-2">Scan to Pay</p>
+                      <QRCode
+                        value={`upi://pay?pa=${selectedBill.upi_id}&pn=${encodeURIComponent(selectedBill.company_name)}&am=${selectedBill.total_invoice_value}&cu=INR&tn=${selectedBill.bill_no}`}
+                        size={128}
+                        level="M"
+                        className="border-2 border-gray-300 p-2 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">UPI: {selectedBill.upi_id}</p>
+                    </div>
+                  ) : selectedBill.qr_code_image ? (
                     <div className="text-center">
                       <p className="text-sm font-semibold text-gray-700 mb-2">Scan to Pay</p>
                       <img
@@ -616,7 +813,7 @@ const PrintBillPage = () => {
                         className="w-32 h-32 border-2 border-gray-300"
                       />
                     </div>
-                  )}
+                  ) : null}
                 </div>
               </div>
 
@@ -683,6 +880,49 @@ const PrintBillPage = () => {
           </div>
         </form>
       </Modal>
+
+{/* Mark Payment Modal */}
+      <MarkPaymentModal
+        isOpen={showPaymentModal}
+        onClose={() => {
+          setShowPaymentModal(false);
+          setSelectedBillForPayment(null);
+        }}
+        bill={selectedBillForPayment}
+        onPaymentMarked={async (paymentData) => {
+          try {
+            await paymentAPI.markPayment({
+              bill_id: selectedBillForPayment.id,
+              ...paymentData,
+              payment_date: paymentData.payment_date.toISOString().split('T')[0]
+            });
+            toast.success('Payment recorded successfully');
+            setShowPaymentModal(false);
+            setSelectedBillForPayment(null);
+            loadBills(); // Reload list
+            if (view === 'preview') {
+              const response = await billAPI.getBillByNumber(selectedBill.bill_no);
+              setSelectedBill(response.data.data);
+            }
+          } catch (error) {
+            console.error('Failed to mark payment:', error);
+            toast.error(error.response?.data?.message || 'Failed to mark payment');
+          }
+        }}
+      />
+
+      {/* Payment History Popup */}
+      <PaymentHistoryPopup
+        isOpen={showPaymentHistory}
+        onClose={() => {
+          setShowPaymentHistory(false);
+          setSelectedBillForPayment(null);
+        }}
+        billId={selectedBillForPayment?.id}
+        billNo={selectedBillForPayment?.bill_no}
+        totalAmount={selectedBillForPayment?.total_invoice_value}
+      />
+
     </div>
   );
 };

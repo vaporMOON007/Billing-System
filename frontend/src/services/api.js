@@ -44,10 +44,21 @@ api.interceptors.response.use(
 
 export const authAPI = {
   login: (credentials) => api.post('/auth/login', credentials),
-  register: (userData) => api.post('/auth/register', userData),
-  getProfile: () => api.get('/auth/me'),
-  logout: () => api.post('/auth/logout'),
-  changePassword: (passwords) => api.put('/auth/change-password', passwords),
+  getProfile: () => api.get('/auth/profile'),
+  changePassword: (data) => api.post('/auth/change-password', data),
+  register: (data) => api.post('/auth/register', data),
+  verifyUserForReset: (data) => api.post('/auth/verify-user', data),
+  resetPassword: (data) => api.post('/auth/reset-password', data),
+};
+
+// ============================================================================
+// PAYMENT ENDPOINTS
+// ============================================================================
+
+export const paymentAPI = {
+  markPayment: (paymentData) => api.post('/payments', paymentData),
+  getPaymentHistory: (billId) => api.get(`/payments/bill/${billId}`),
+  deletePayment: (id) => api.delete(`/payments/${id}`),
 };
 
 // ============================================================================
@@ -65,6 +76,8 @@ export const billAPI = {
   sendEmail: (id, emailData) => api.post(`/bills/${id}/email`, emailData),
   addServiceToBill: (billId, serviceData) => api.post(`/bills/${billId}/services`, serviceData),
   deleteService: (serviceId) => api.delete(`/bills/services/${serviceId}`),
+  previewBillNumber: (params) => api.get('/bills/preview-number', { params }),
+
 };
 
 // ============================================================================
@@ -109,6 +122,7 @@ export const masterAPI = {
   updatePaymentTerm: (id, data) => api.put(`/masters/payment-terms/${id}`, data),
   deletePaymentTerm: (id) => api.delete(`/masters/payment-terms/${id}`),
 };
+
 
 
 export default api;

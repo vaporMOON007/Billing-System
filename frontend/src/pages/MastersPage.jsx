@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2 } from 'lucide-react';
+import { Plus, Edit2, Trash2, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { masterAPI } from '../services/api';
 import Modal from '../components/common/Modal';
+import ClientBulkImport from '../components/modals/ClientBulkImport';
+import { useAuth } from '../context/AuthContext';
 
 const MastersPage = () => {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('particulars');
   const [particulars, setParticulars] = useState([]);
   const [gstRates, setGstRates] = useState([]);
@@ -12,6 +15,7 @@ const MastersPage = () => {
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
+  const [showBulkImport, setShowBulkImport] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -122,22 +126,35 @@ const MastersPage = () => {
   };
 
   const tabs = [
+    { id: 'company', label: 'Company Master', roles: ['CA'] },
     { id: 'particulars', label: 'Services (Particulars)' },
+    { id: 'clients', label: 'Client Master' },
     { id: 'gst', label: 'GST Rates' },
     { id: 'payment', label: 'Payment Terms' },
-  ];
+  ].filter(tab => !tab.roles || tab.roles.includes(user?.role));
 
   return (
     <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+<div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold text-gray-900">Master Data Management</h1>
-        <button
-          onClick={handleAdd}
-          className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add New</span>
-        </button>
+        <div className="flex space-x-3">
+          {activeTab === 'clients' && (
+            <button
+              onClick={() => setShowBulkImport(true)}
+              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Bulk Import</span>
+            </button>
+          )}
+          <button
+            onClick={handleAdd}
+            className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add New</span>
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -423,6 +440,16 @@ const MastersPage = () => {
           </div>
         </form>
       </Modal>
+
+      {/* Client Bulk Import Modal */}
+      <ClientBulkImport
+        isOpen={showBulkImport}
+        onClose={() => setShowBulkImport(false)}
+        onImportComplete={() => {
+          loadData();
+          setShowBulkImport(false);
+        }}
+      />
     </div>
   );
 };

@@ -8,10 +8,13 @@ import Dashboard from './pages/Dashboard';
 import ServicesFormPage from './pages/ServicesFormPage';
 import PrintBillPage from './pages/PrintBillPage';
 import MastersPage from './pages/MastersPage';
+import Register from './components/auth/Register';
+import ResetPassword from './components/auth/ResetPassword';
+
 
 // Protected Route Component
-const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
+const ProtectedRoute = ({ children, allowedRoles }) => {
+  const { isAuthenticated, loading, user } = useAuth();
 
   if (loading) {
     return (
@@ -23,6 +26,12 @@ const ProtectedRoute = ({ children }) => {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+
+  // Check role-based access
+  if (allowedRoles && !allowedRoles.includes(user?.role)) {
+    toast.error('Access denied. Insufficient permissions.');
+    return <Navigate to="/services-form" replace />;
   }
 
   return children;
@@ -73,12 +82,14 @@ function App() {
         <Routes>
           {/* Public Routes */}
           <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
 
           {/* Protected Routes */}
           <Route
             path="/dashboard"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute allowedRoles={['CA']}>
                 <Layout>
                   <Dashboard />
                 </Layout>
@@ -117,8 +128,8 @@ function App() {
           />
 
           {/* Redirect */}
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/" element={<Navigate to="/services-form" replace />} />
+          <Route path="*" element={<Navigate to="/services-form" replace />} />
         </Routes>
       </Router>
     </AuthProvider>

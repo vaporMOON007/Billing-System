@@ -153,4 +153,134 @@ exports.deletePayment = async (req, res) => {
       error: error.message
     });
   }
+
+// ============================================================================
+// PAYMENT TERMS MASTER
+// ============================================================================
+
+// @desc    Get all payment terms
+// @route   GET /api/masters/payment-terms
+// @access  Private
+exports.getAllPaymentTerms = async (req, res) => {
+  try {
+    const result = await query(
+      'SELECT * FROM payment_terms_master ORDER BY days_to_add ASC'
+    );
+
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Get payment terms error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch payment terms',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Create payment term
+// @route   POST /api/masters/payment-terms
+// @access  Private
+exports.createPaymentTerm = async (req, res) => {
+  try {
+    const { term_name, days_to_add } = req.body;
+
+    const result = await query(
+      `INSERT INTO payment_terms_master (term_name, days_to_add)
+       VALUES ($1, $2)
+       RETURNING *`,
+      [term_name, days_to_add]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: 'Payment term created successfully',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Create payment term error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create payment term',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Update payment term
+// @route   PUT /api/masters/payment-terms/:id
+// @access  Private
+exports.updatePaymentTerm = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { term_name, days_to_add } = req.body;
+
+    const result = await query(
+      `UPDATE payment_terms_master 
+       SET term_name = COALESCE($1, term_name),
+           days_to_add = COALESCE($2, days_to_add),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3
+       RETURNING *`,
+      [term_name, days_to_add, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Payment term not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Payment term updated successfully',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Update payment term error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update payment term',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Delete payment term
+// @route   DELETE /api/masters/payment-terms/:id
+// @access  Private
+exports.deletePaymentTerm = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await query(
+      'DELETE FROM payment_terms_master WHERE id = $1 RETURNING id',
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Payment term not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Payment term deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete payment term error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete payment term',
+      error: error.message
+    });
+  }
+};
+
 };

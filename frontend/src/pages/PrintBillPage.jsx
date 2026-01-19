@@ -236,134 +236,117 @@ const PrintBillPage = () => {
 
       {view === 'list' ? (
         <>
-          {/* Search & Filters */}
-            <div className="bg-white rounded-lg shadow p-6 mb-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Filters</h3>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Search by Bill Number
-                  </label>
-                  <div className="flex space-x-2">
-                    <input
-                      type="text"
-                      value={filters.searchTerm}
-                      onChange={(e) => setFilters({ ...filters, searchTerm: e.target.value })}
-                      onKeyPress={(e) => e.key === 'Enter' && filters.searchTerm && handleSearchByNumber(filters.searchTerm)}
-                      placeholder="e.g., INV-ABC-001"
-                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    />
-                    <button
-                      onClick={() => filters.searchTerm && handleSearchByNumber(filters.searchTerm)}
-                      className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-                    >
-                      <Search className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Date From
-                  </label>
-                  <DatePicker
-                    selected={filters.date_from ? new Date(filters.date_from) : null}
-                    onChange={(date) => setFilters({ ...filters, date_from: date?.toISOString().split('T')[0] || '' })}
-                    dateFormat="dd/MM/yyyy"
-                    placeholderText="From date"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    isClearable
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Date To
-                  </label>
-                  <DatePicker
-                    selected={filters.date_to ? new Date(filters.date_to) : null}
-                    onChange={(date) => setFilters({ ...filters, date_to: date?.toISOString().split('T')[0] || '' })}
-                    dateFormat="dd/MM/yyyy"
-                    placeholderText="To date"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    isClearable
-                  />
-                </div>
-
-                <Dropdown
-                  label="Status"
-                  value={filters.status}
-                  onChange={(value) => {
-                    setFilters({ ...filters, status: value });
-                    setCurrentPage(1);
-                  }}
-                  options={statusOptions}
+        {/* Search & Filters */}
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Filters</h3>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Search by Bill Number
+              </label>
+              <div className="flex space-x-2">
+                <input
+                  type="text"
+                  value={filters.searchTerm}
+                  onChange={(e) => setFilters({ ...filters, searchTerm: e.target.value })}
+                  onKeyPress={(e) => e.key === 'Enter' && filters.searchTerm && handleSearchByNumber(filters.searchTerm)}
+                  placeholder="e.g., INV-ABC-001"
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
-
-                <Dropdown
-                  label="Payment Status"
-                  value={filters.payment_status}
-                  onChange={(value) => {
-                    setFilters({ ...filters, payment_status: value });
-                    setCurrentPage(1);
-                  }}
-                  options={[
-                    { value: '', label: 'All' },
-                    { value: 'UNPAID', label: 'Unpaid' },
-                    { value: 'PARTIAL', label: 'Partial' },
-                    { value: 'PAID', label: 'Paid' }
-                  ]}
-                />
-              </div>
-              
-              <div className="flex justify-end space-x-3">
                 <button
-                  onClick={() => {
-                    setFilters({
-                      status: '',
-                      payment_status: '',
-                      searchTerm: '',
-                      date_from: '',
-                      date_to: '',
-                      header_id: '',
-                      client_id: '',
-                      created_by: ''
-                    });
-                    setCurrentPage(1);
-                  }}
-                  className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Clear Filters
-                </button>
-                <button
-                  onClick={() => {
-                    setCurrentPage(1);
-                    loadBills();
-                  }}
+                  onClick={() => filters.searchTerm && handleSearchByNumber(filters.searchTerm)}
                   className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
                 >
-                  Apply Filters
+                  <Search className="w-5 h-5" />
                 </button>
               </div>
-                  <button
-                    onClick={() => filters.searchTerm && handleSearchByNumber(filters.searchTerm)}
-                    className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-                  >
-                    <Search className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-              <Dropdown
-                label="Filter by Status"
-                value={filters.status}
-                onChange={(value) => {
-                  setFilters({ ...filters, status: value });
-                  setCurrentPage(1);
-                }}
-                options={statusOptions}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Date From
+              </label>
+              <DatePicker
+                selected={filters.date_from ? new Date(filters.date_from) : null}
+                onChange={(date) => setFilters({ ...filters, date_from: date?.toISOString().split('T')[0] || '' })}
+                dateFormat="dd/MM/yyyy"
+                placeholderText="From date"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                isClearable
               />
             </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Date To
+              </label>
+              <DatePicker
+                selected={filters.date_to ? new Date(filters.date_to) : null}
+                onChange={(date) => setFilters({ ...filters, date_to: date?.toISOString().split('T')[0] || '' })}
+                dateFormat="dd/MM/yyyy"
+                placeholderText="To date"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                isClearable
+              />
+            </div>
+
+            <Dropdown
+              label="Status"
+              value={filters.status}
+              onChange={(value) => {
+                setFilters({ ...filters, status: value });
+                setCurrentPage(1);
+              }}
+              options={statusOptions}
+            />
+
+            <Dropdown
+              label="Payment Status"
+              value={filters.payment_status}
+              onChange={(value) => {
+                setFilters({ ...filters, payment_status: value });
+                setCurrentPage(1);
+              }}
+              options={[
+                { value: '', label: 'All' },
+                { value: 'UNPAID', label: 'Unpaid' },
+                { value: 'PARTIAL', label: 'Partial' },
+                { value: 'PAID', label: 'Paid' }
+              ]}
+            />
           </div>
+          
+          <div className="flex justify-end space-x-3">
+            <button
+              onClick={() => {
+                setFilters({
+                  status: '',
+                  payment_status: '',
+                  searchTerm: '',
+                  date_from: '',
+                  date_to: '',
+                  header_id: '',
+                  client_id: '',
+                  created_by: ''
+                });
+                setCurrentPage(1);
+              }}
+              className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              Clear Filters
+            </button>
+            <button
+              onClick={() => {
+                setCurrentPage(1);
+                loadBills();
+              }}
+              className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+            >
+              Apply Filters
+            </button>
+          </div>
+        </div>
+          
 
           {/* Bills Table */}
           <div className="bg-white rounded-lg shadow">
@@ -432,7 +415,7 @@ const PrintBillPage = () => {
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium text-right">
                           {formatCurrency(bill.total_invoice_value)}
                         </td>
-<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium text-right">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium text-right">
                           {formatCurrency(bill.total_invoice_value)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">

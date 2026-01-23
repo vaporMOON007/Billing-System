@@ -1,314 +1,346 @@
 import { useState } from 'react';
-import { X, Upload, Download, AlertCircle } from 'lucide-react';
+import { Upload, Download, X, AlertCircle, CheckCircle } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
-import Papa from 'papaparse';
+import { clientAPI } from '../../services/api';
+import Modal from '../common/Modal';
 
 const ClientBulkImport = ({ isOpen, onClose, onImportComplete }) => {
   const [file, setFile] = useState(null);
   const [importing, setImporting] = useState(false);
   const [results, setResults] = useState(null);
-  const [showDetails, setShowDetails] = useState(false);
+
+  const downloadTemplate = () => {
+    const template = [
+      {
+        'Client Name': 'ABC Corporation',
+        'Contact Person': 'John Doe',
+        'Phone': '9876543210',
+        'Email': 'john@example.com',
+        'GSTIN': '27AABCU9603R1ZM',
+        'Address Line 1': '123 Business Street',
+        'Address Line 2': 'Near Market Square',
+        'City': 'Mumbai',
+        'State': 'Maharashtra',
+        'Pincode': '400001'
+      },
+      {
+        'Client Name': 'XYZ Enterprises',
+        'Contact Person': 'Jane Smith',
+        'Phone': '9123456789',
+        'Email': 'jane@xyz.com',
+        'GSTIN': '29AAACU9603R1Z5',
+        'Address Line 1': '456 Corporate Plaza',
+        'Address Line 2': '',
+        'City': 'Delhi',
+        'State': 'Delhi',
+        'Pincode': '110001'
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(template);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Clients');
+    
+    // Set column widths
+    ws['!cols'] = [
+      { wch: 25 }, // Client Name
+      { wch: 20 }, // Contact Person
+      { wch: 15 }, // Phone
+      { wch: 25 }, // Email
+      { wch: 18 }, // GSTIN
+      { wch: 30 }, // Address Line 1
+      { wch: 30 }, // Address Line 2
+      { wch: 15 }, // City
+      { wch: 15 }, // State
+      { wch: 10 }  // Pincode
+    ];
+    
+    XLSX.writeFile(wb, 'client_import_template.xlsx');
+    toast.success('Template downloaded successfully');
+  };
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
-    if (selectedFile && selectedFile.type === 'text/csv') {
+    if (selectedFile) {
+      // Check if it's an Excel file
+      const validTypes = [
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      ];
+      
+      if (!validTypes.includes(selectedFile.type) && !selectedFile.name.match(/\.(xlsx|xls)$/)) {
+        toast.error('Please upload an Excel file (.xlsx or .xls)');
+        return;
+      }
+      
       setFile(selectedFile);
       setResults(null);
-    } else {
-      toast.error('Please select a valid CSV file');
     }
   };
 
-  const handleDownloadSample = () => {
-    const sampleCSV = `Client Name,Contact Person,Phone,Email,GSTIN,Address Line 1,Address Line 2,City,State,Pincode
-ABC Corp,John Doe,9876543210,john@abc.com,27AABCU9603R1ZM,123 Main St,Suite 400,Mumbai,Maharashtra,400001
-XYZ Ltd,Jane Smith,9876543211,jane@xyz.com,27AADCX1234E1Z5,456 Park Ave,,Pune,Maharashtra,411001`;
-
-    const blob = new Blob([sampleCSV], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'client-import-sample.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
+  const validateRow = (row, index) => {
+    const errors = [];
     
-    toast.success('Sample CSV downloaded');
+    // Required fields validation
+    if (!row['Client Name'] || row['Client Name'].toString().trim() === '') {
+      errors.push(`Row ${index}: Client Name is required`);
+    }
+    
+    if (!row['Contact Person'] || row['Contact Person'].toString().trim() === '') {
+      errors.push(`Row ${index}: Contact Person is required`);
+    }
+    
+    if (!row['Phone'] || row['Phone'].toString().trim() === '') {
+      errors.push(`Row ${index}: Phone is required`);
+    } else {
+      const phone = row['Phone'].toString().replace(/[^0-9]/g, '');
+      if (phone.length !== 10) {
+        errors.push(`Row ${index}: Phone must be exactly 10 digits`);
+      }
+    }
+    
+    if (!row['GSTIN'] || row['GSTIN'].toString().trim() === '') {
+      errors.push(`Row ${index}: GSTIN is required`);
+    } else {
+      const gstin = row['GSTIN'].toString().trim();
+      if (gstin.length !== 15) {
+        errors.push(`Row ${index}: GSTIN must be exactly 15 characters`);
+      }
+    }
+    
+    // Optional field validations
+    if (row['Email'] && row['Email'].toString().trim() !== '') {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(row['Email'].toString().trim())) {
+        errors.push(`Row ${index}: Invalid email format`);
+      }
+    }
+    
+    if (row['Pincode'] && row['Pincode'].toString().trim() !== '') {
+      const pincode = row['Pincode'].toString().replace(/[^0-9]/g, '');
+      if (pincode.length !== 6) {
+        errors.push(`Row ${index}: Pincode must be exactly 6 digits`);
+      }
+    }
+    
+    return errors;
   };
 
-  const handleUpload = async () => {
+  const handleImport = async () => {
     if (!file) {
-      toast.error('Please select a file first');
+      toast.error('Please select a file to import');
       return;
     }
 
     setImporting(true);
+    const reader = new FileReader();
 
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: async (results) => {
-        try {
-          const clients = results.data.map((row) => ({
-            client_name: row['Client Name']?.trim(),
-            contact_person: row['Contact Person']?.trim(),
-            phone: row['Phone']?.trim(),
-            email: row['Email']?.trim(),
-            gstin: row['GSTIN']?.trim(),
-            address_line1: row['Address Line 1']?.trim(),
-            address_line2: row['Address Line 2']?.trim(),
-            city: row['City']?.trim(),
-            state: row['State']?.trim(),
-            pincode: row['Pincode']?.trim()
-          }));
+    reader.onload = async (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const jsonData = XLSX.utils.sheet_to_json(firstSheet);
 
-          const response = await fetch('/api/clients/bulk-import', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('token')}`
-            },
-            body: JSON.stringify({ clients })
-          });
-
-          const data = await response.json();
-
-          if (data.success) {
-            setResults(data.data);
-            toast.success(data.message);
-            if (data.data.imported > 0) {
-              onImportComplete();
-            }
-          } else {
-            toast.error(data.message);
-          }
-        } catch (error) {
-          console.error('Import error:', error);
-          toast.error('Failed to import clients');
-        } finally {
+        if (jsonData.length === 0) {
+          toast.error('The file is empty or has no valid data');
           setImporting(false);
+          return;
         }
-      },
-      error: (error) => {
-        console.error('CSV parse error:', error);
-        toast.error('Failed to parse CSV file');
+
+        // Validate all rows first
+        const allErrors = [];
+        jsonData.forEach((row, index) => {
+          const errors = validateRow(row, index + 2); // +2 because Excel starts at 1 and header is row 1
+          allErrors.push(...errors);
+        });
+
+        if (allErrors.length > 0) {
+          setResults({
+            success: 0,
+            failed: jsonData.length,
+            errors: allErrors
+          });
+          setImporting(false);
+          toast.error(`Validation failed. Please fix ${allErrors.length} error(s)`);
+          return;
+        }
+
+        // Transform data to match backend schema
+        const clients = jsonData.map(row => ({
+          client_name: row['Client Name']?.toString().trim() || '',
+          contact_person: row['Contact Person']?.toString().trim() || '',
+          phone: row['Phone']?.toString().replace(/[^0-9]/g, '') || '',
+          email: row['Email']?.toString().trim() || null,
+          gstin: row['GSTIN']?.toString().trim() || '',
+          address_line1: row['Address Line 1']?.toString().trim() || null,
+          address_line2: row['Address Line 2']?.toString().trim() || null,
+          city: row['City']?.toString().trim() || null,
+          state: row['State']?.toString().trim() || null,
+          pincode: row['Pincode']?.toString().replace(/[^0-9]/g, '') || null
+        }));
+
+        // Import clients
+        const response = await clientAPI.bulkImport({ clients });
+        
+        setResults({
+          success: response.data.results?.successful || clients.length,
+          failed: response.data.results?.failed || 0,
+          errors: response.data.results?.errors || []
+        });
+
+        if (response.data.results?.failed === 0) {
+          toast.success(`Successfully imported ${clients.length} client(s)`);
+          setTimeout(() => {
+            onImportComplete();
+          }, 1500);
+        } else {
+          toast.warning(`Imported ${response.data.results?.successful} client(s), ${response.data.results?.failed} failed`);
+        }
+
+      } catch (error) {
+        console.error('Import error:', error);
+        toast.error(error.response?.data?.message || 'Failed to import clients');
+        setResults({
+          success: 0,
+          failed: 0,
+          errors: [error.response?.data?.message || 'Import failed']
+        });
+      } finally {
         setImporting(false);
       }
-    });
+    };
+
+    reader.onerror = () => {
+      toast.error('Failed to read file');
+      setImporting(false);
+    };
+
+    reader.readAsArrayBuffer(file);
   };
 
   const handleClose = () => {
     setFile(null);
     setResults(null);
-    setShowDetails(false);
     onClose();
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
-        onClick={handleClose}
-      />
+    <Modal isOpen={isOpen} onClose={handleClose} title="Bulk Import Clients" size="md">
+      <div className="space-y-4">
+        {/* Instructions */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <h4 className="text-sm font-semibold text-blue-900 mb-2">Import Instructions</h4>
+          <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
+            <li>Download the Excel template below</li>
+            <li>Fill in the client details following the format</li>
+            <li><strong>Required fields:</strong> Client Name, Contact Person, Phone, GSTIN</li>
+            <li><strong>Optional fields:</strong> Email, Address Line 1, Address Line 2, City, State, Pincode</li>
+            <li>Upload the completed file and click Import</li>
+          </ol>
+        </div>
 
-      {/* Modal */}
-      <div className="flex min-h-full items-center justify-center p-4">
-        <div
-          className="relative bg-white rounded-lg shadow-xl w-full max-w-3xl transform transition-all"
-          onClick={(e) => e.stopPropagation()}
+        {/* Download Template Button */}
+        <button
+          onClick={downloadTemplate}
+          className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
         >
-          {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                <Upload className="w-6 h-6 text-blue-600" />
+          <Download className="w-5 h-5" />
+          <span>Download Excel Template</span>
+        </button>
+
+        {/* File Upload */}
+        <div className="border-2 border-dashed border-gray-300 rounded-lg p-6">
+          <input
+            type="file"
+            id="file-upload"
+            accept=".xlsx,.xls"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+          <label
+            htmlFor="file-upload"
+            className="flex flex-col items-center justify-center cursor-pointer"
+          >
+            <Upload className="w-12 h-12 text-gray-400 mb-3" />
+            <span className="text-sm font-medium text-gray-700 mb-1">
+              {file ? file.name : 'Click to upload Excel file'}
+            </span>
+            <span className="text-xs text-gray-500">
+              Supports .xlsx and .xls files
+            </span>
+          </label>
+        </div>
+
+        {/* Results */}
+        {results && (
+          <div className="space-y-3">
+            {results.success > 0 && (
+              <div className="flex items-start space-x-2 bg-green-50 border border-green-200 rounded-lg p-3">
+                <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-green-900">
+                    Successfully imported {results.success} client(s)
+                  </p>
+                </div>
               </div>
-              <h3 className="text-xl font-semibold text-gray-900">Bulk Import Clients</h3>
-            </div>
-            <button
-              onClick={handleClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              <X className="w-6 h-6" />
-            </button>
-          </div>
+            )}
 
-          {/* Content */}
-          <div className="p-6">
-            {!results ? (
-              <>
-                {/* Instructions */}
-                <div className="bg-blue-50 rounded-lg p-4 mb-6">
-                  <h4 className="text-sm font-semibold text-blue-900 mb-2">Instructions:</h4>
-                  <ul className="text-sm text-blue-800 space-y-1">
-                    <li>• Upload a CSV file with client information</li>
-                    <li>• Required columns: Client Name, Contact Person, Phone, GSTIN</li>
-                    <li>• Optional columns: Email, Address Line 1, Address Line 2, City, State, Pincode</li>
-                    <li>• Phone must be 10 digits</li>
-                    <li>• GSTIN must be 15 characters in valid format</li>
-                    <li>• Duplicate client names will be skipped</li>
-                  </ul>
-                </div>
-
-                {/* Download Sample */}
-                <div className="mb-6">
-                  <button
-                    onClick={handleDownloadSample}
-                    className="flex items-center space-x-2 text-primary-600 hover:text-primary-700 font-medium"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>Download Sample CSV</span>
-                  </button>
-                </div>
-
-                {/* File Upload */}
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Upload CSV File
-                  </label>
-                  <input
-                    type="file"
-                    accept=".csv"
-                    onChange={handleFileChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                  {file && (
-                    <p className="mt-2 text-sm text-gray-600">
-                      Selected: {file.name}
-                    </p>
+            {results.failed > 0 && (
+              <div className="flex items-start space-x-2 bg-red-50 border border-red-200 rounded-lg p-3">
+                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-red-900 mb-2">
+                    {results.failed} row(s) failed to import
+                  </p>
+                  {results.errors && results.errors.length > 0 && (
+                    <div className="mt-2 max-h-40 overflow-y-auto">
+                      <ul className="text-xs text-red-800 space-y-1">
+                        {results.errors.map((error, index) => (
+                          <li key={index} className="flex items-start">
+                            <span className="mr-2">•</span>
+                            <span>{error}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   )}
                 </div>
+              </div>
+            )}
+          </div>
+        )}
 
-                {/* Actions */}
-                <div className="flex justify-end space-x-3">
-                  <button
-                    onClick={handleClose}
-                    className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleUpload}
-                    disabled={!file || importing}
-                    className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {importing ? 'Importing...' : 'Upload & Import'}
-                  </button>
-                </div>
+        {/* Action Buttons */}
+        <div className="flex justify-end space-x-3 pt-4 border-t">
+          <button
+            onClick={handleClose}
+            className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+            disabled={importing}
+          >
+            {results?.success > 0 ? 'Close' : 'Cancel'}
+          </button>
+          <button
+            onClick={handleImport}
+            disabled={!file || importing}
+            className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center space-x-2"
+          >
+            {importing ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <span>Importing...</span>
               </>
             ) : (
               <>
-                {/* Results Summary */}
-                <div className="mb-6">
-                  <div className="grid grid-cols-3 gap-4 mb-4">
-                    <div className="bg-green-50 rounded-lg p-4">
-                      <p className="text-xs text-green-600 font-medium mb-1">Successfully Imported</p>
-                      <p className="text-2xl font-bold text-green-900">{results.imported}</p>
-                    </div>
-                    <div className="bg-yellow-50 rounded-lg p-4">
-                      <p className="text-xs text-yellow-600 font-medium mb-1">Skipped (Duplicates)</p>
-                      <p className="text-2xl font-bold text-yellow-900">{results.duplicates.length}</p>
-                    </div>
-                    <div className="bg-red-50 rounded-lg p-4">
-                      <p className="text-xs text-red-600 font-medium mb-1">Failed (Errors)</p>
-                      <p className="text-2xl font-bold text-red-900">{results.errors.length}</p>
-                    </div>
-                  </div>
-
-                  {/* Show Details Toggle */}
-                  {(results.duplicates.length > 0 || results.errors.length > 0) && (
-                    <button
-                      onClick={() => setShowDetails(!showDetails)}
-                      className="text-primary-600 hover:text-primary-700 font-medium text-sm"
-                    >
-                      {showDetails ? 'Hide Details ▲' : 'Show Details ▼'}
-                    </button>
-                  )}
-                </div>
-
-                {/* Details */}
-                {showDetails && (
-                  <div className="space-y-4 max-h-96 overflow-y-auto">
-                    {/* Errors */}
-                    {results.errors.length > 0 && (
-                      <div>
-                        <h4 className="text-sm font-semibold text-red-900 mb-2 flex items-center">
-                          <AlertCircle className="w-4 h-4 mr-2" />
-                          Failed Rows ({results.errors.length})
-                        </h4>
-                        <div className="bg-red-50 rounded-lg overflow-hidden">
-                          <table className="w-full text-sm">
-                            <thead className="bg-red-100">
-                              <tr>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-red-900">Row</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-red-900">Client Name</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-red-900">Error</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-red-200">
-                              {results.errors.map((error, idx) => (
-                                <tr key={idx}>
-                                  <td className="px-3 py-2 text-red-900">{error.row}</td>
-                                  <td className="px-3 py-2 text-red-900">{error.client_name}</td>
-                                  <td className="px-3 py-2 text-red-700">{error.error}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Duplicates */}
-                    {results.duplicates.length > 0 && (
-                      <div>
-                        <h4 className="text-sm font-semibold text-yellow-900 mb-2">
-                          Duplicate Clients (Skipped) ({results.duplicates.length})
-                        </h4>
-                        <div className="bg-yellow-50 rounded-lg overflow-hidden">
-                          <table className="w-full text-sm">
-                            <thead className="bg-yellow-100">
-                              <tr>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-yellow-900">Row</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-yellow-900">Client Name</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-yellow-900">Existing ID</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-yellow-200">
-                              {results.duplicates.map((dup, idx) => (
-                                <tr key={idx}>
-                                  <td className="px-3 py-2 text-yellow-900">{dup.row}</td>
-                                  <td className="px-3 py-2 text-yellow-900">{dup.client_name}</td>
-                                  <td className="px-3 py-2 text-yellow-700">#{dup.existing_id}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Close Button */}
-                <div className="flex justify-end mt-6">
-                  <button
-                    onClick={handleClose}
-                    className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
-                  >
-                    Close
-                  </button>
-                </div>
+                <Upload className="w-4 h-4" />
+                <span>Import Clients</span>
               </>
             )}
-          </div>
+          </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, X } from 'lucide-react';
+import { Search, X, Plus } from 'lucide-react';
 
 const SearchableDropdown = ({ 
   label, 
@@ -25,7 +25,7 @@ const SearchableDropdown = ({
       if (onSearch) {
         // Call external search
         onSearch(searchTerm);
-        // ✅ FIX: Update filteredOptions with the options prop (API results)
+        // Update filteredOptions with the options prop (API results)
         setFilteredOptions(options || []);
         console.log("🔍 After API search, filteredOptions set to:", options);
       } else {
@@ -106,30 +106,39 @@ const SearchableDropdown = ({
 
         {isOpen && (
           <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-            {filteredOptions.length > 0 ? (
-              filteredOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => handleSelect(option)}
-                  className="w-full px-4 py-2 text-left hover:bg-primary-50 focus:bg-primary-50 focus:outline-none"
-                >
-                  {option.label}
-                </button>
-              ))
-            ) : (
-              <div className="px-4 py-2 text-gray-500 text-sm">
-                No results found
-                {allowCreate && searchTerm && (
+            {/* Existing Options */}
+            {filteredOptions.length > 0 && (
+              <>
+                {filteredOptions.map((option) => (
                   <button
+                    key={option.value}
                     type="button"
-                    onClick={handleCreate}
-                    className="block mt-2 text-primary-600 hover:text-primary-700 font-medium"
+                    onClick={() => handleSelect(option)}
+                    className="w-full px-4 py-2 text-left hover:bg-primary-50 focus:bg-primary-50 focus:outline-none"
                   >
-                    + Create "{searchTerm}"
+                    {option.label}
                   </button>
-                )}
+                ))}
+              </>
+            )}
+
+            {/* No Results Message */}
+            {filteredOptions.length === 0 && searchTerm && (
+              <div className="px-4 py-2 text-gray-500 text-sm">
+                No clients found matching "{searchTerm}"
               </div>
+            )}
+
+            {/* Always Show "Add New" Button at Bottom */}
+            {allowCreate && searchTerm && (
+              <button
+                type="button"
+                onClick={handleCreate}
+                className="w-full px-4 py-2 text-left border-t border-gray-200 bg-primary-50 hover:bg-primary-100 text-primary-700 font-medium flex items-center space-x-2"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add "{searchTerm}" as new client</span>
+              </button>
             )}
           </div>
         )}

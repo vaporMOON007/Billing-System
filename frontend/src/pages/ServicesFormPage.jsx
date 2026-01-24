@@ -1,7 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Plus, Save } from 'lucide-react';
-import { Eye } from 'lucide-react';
+import { Plus, Save, Eye, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ServiceRow from '../components/forms/ServiceRow';
 import Dropdown from '../components/common/Dropdown';
@@ -20,6 +19,9 @@ const ServicesFormPage = () => {
   const [editMode, setEditMode] = useState(false);
   const [editBillId, setEditBillId] = useState(null);
 
+  // NEW: Unsaved changes tracking
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
   // Master data
   const [headers, setHeaders] = useState([]);
   const [particulars, setParticulars] = useState([]);
@@ -36,6 +38,7 @@ const ServicesFormPage = () => {
     notes: '',
   });
 
+  const [serviceErrors, setServiceErrors] = useState([]);
   const [billNumberPreview, setBillNumberPreview] = useState('');
 
   const [services, setServices] = useState([
@@ -53,6 +56,27 @@ const ServicesFormPage = () => {
   useEffect(() => {
     loadMasterData();
   }, []);
+
+  // NEW: Track unsaved changes
+  useEffect(() => {
+    if (!editMode && (formData.header_id || services.length > 1 || services[0].particulars_id)) {
+      setHasUnsavedChanges(true);
+    }
+  }, [formData, services, editMode]);
+
+  // NEW: Prevent browser close/refresh with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   // Preview bill number when company or date changes
   useEffect(() => {
@@ -170,6 +194,52 @@ const ServicesFormPage = () => {
     setServices(newServices);
   };
 
+  // NEW: Validate services before submission
+  const validateServices = () => {
+    const errors = [];
+    const duplicates = [];
+    
+    services.forEach((service, index) => {
+      // Check for empty required fields
+      if (!service.particulars_id || !service.amount || !service.gst_rate_id) {
+        errors.push(index);
+      }
+      
+      // Check for duplicates
+      const duplicate = services.findIndex((s, i) => 
+        i !== index &&
+        s.particulars_id === service.particulars_id &&
+        s.service_date === service.service_date &&
+        s.service_year === service.service_year
+      );
+      
+      if (duplicate !== -1 && !duplicates.includes(index)) {
+        duplicates.push(index);
+      }
+    });
+    
+    setServiceErrors(errors);
+    
+    if (errors.length > 0) {
+      toast.error(`Service row ${errors[0] + 1} has empty required fields`);
+      // Scroll to first error
+      document.querySelector(`[data-service-index="${errors[0]}"]`)?.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'center' 
+      });
+      return false;
+    }
+    
+    if (duplicates.length > 0) {
+      const confirmed = window.confirm(
+        `Warning: Service at row ${duplicates[0] + 1} appears to be a duplicate. Continue anyway?`
+      );
+      if (!confirmed) return false;
+    }
+    
+    return true;
+  };
+
   const handleSearchClients = debounce(async (searchTerm) => {
     console.log("🔎 ServicesFormPage - Searching for:", searchTerm);
     
@@ -274,15 +344,22 @@ const ServicesFormPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // NEW: Validate services first
+    if (!validateServices()) {
+      return;
+    }
+
     setLoading(true);
+    setHasUnsavedChanges(false);
 
     try {
       // Validate services
-      const invalidService = services.find(
+      const validateServices = services.find(
         (s) => !s.particulars_id || !s.amount || !s.gst_rate_id
       );
 
-      if (invalidService) {
+      if (validateServices) {
         toast.error('Please fill all required fields in services');
         setLoading(false);
         return;
@@ -491,6 +568,7 @@ const ServicesFormPage = () => {
                   onRemove={handleRemoveService}
                   particularsOptions={particularsOptions}
                   gstRatesOptions={gstRateOptions}
+                  hasError={serviceErrors.includes(index)}
                 />
               ))}
             </tbody>

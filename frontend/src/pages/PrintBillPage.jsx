@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import QRCode from 'qrcode.react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Search, Download, Mail, MessageSquare, Printer, Eye, ChevronLeft, ChevronRight, Edit, DollarSign, Info } from 'lucide-react';
+import { Search, Download, Mail, MessageSquare, Printer, Eye, ChevronLeft, ChevronRight, Edit, DollarSign, Info, AlertTriangle, AlertCircle, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { billAPI, paymentAPI } from '../services/api';
 import { formatCurrency, formatDate } from '../utils/helpers';
@@ -51,6 +51,15 @@ const PrintBillPage = () => {
   const [showPaymentHistory, setShowPaymentHistory] = useState(false);
   const [selectedBillForPayment, setSelectedBillForPayment] = useState(null);
 
+  // NEW: Finalize modal states
+  const [showFinalizeModal, setShowFinalizeModal] = useState(false);
+  const [finalizeConfirmed, setFinalizeConfirmed] = useState(false);
+
+  // NEW: Delete modal states
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [billToDelete, setBillToDelete] = useState(null);
+  
   useEffect(() => {
     if (location.state?.billNo) {
       handleSearchByNumber(location.state.billNo);
@@ -188,7 +197,12 @@ const PrintBillPage = () => {
   };
 
   const handleFinalizeBill = async () => {
-    if (!window.confirm('Are you sure you want to finalize this bill? This action cannot be undone.')) {
+    setShowFinalizeModal(true);
+  };
+
+  const confirmFinalize = async () => {
+    if (!finalizeConfirmed) {
+      toast.error('Please confirm you understand this action is permanent');
       return;
     }
 
@@ -198,7 +212,9 @@ const PrintBillPage = () => {
       toast.success('Bill finalized successfully');
       const response = await billAPI.getBillByNumber(selectedBill.bill_no);
       setSelectedBill(response.data.data);
-      loadBills(); // Refresh list
+      loadBills();
+      setShowFinalizeModal(false);
+      setFinalizeConfirmed(false);
     } catch (error) {
       console.error('Failed to finalize bill:', error);
       toast.error(error.response?.data?.message || 'Failed to finalize bill');
@@ -208,6 +224,36 @@ const PrintBillPage = () => {
   };
 
   const totalPages = Math.ceil(totalBills / billsPerPage);
+
+  // NEW: Delete bill handlers
+  const handleDeleteBill = (bill) => {
+    setBillToDelete(bill);
+    setShowDeleteModal(true);
+    setDeleteConfirmText('');
+  };
+
+  const confirmDelete = async () => {
+    if (deleteConfirmText !== billToDelete.bill_no) {
+      toast.error('Bill number does not match. Please type the exact bill number.');
+      return;
+    }
+
+    try {
+      await billAPI.deleteBill(billToDelete.id);
+      toast.success('Bill deleted successfully');
+      setShowDeleteModal(false);
+      setBillToDelete(null);
+      setDeleteConfirmText('');
+      loadBills();
+      if (view === 'preview' && selectedBill?.id === billToDelete.id) {
+        setView('list');
+        setSelectedBill(null);
+      }
+    } catch (error) {
+      console.error('Failed to delete bill:', error);
+      toast.error(error.response?.data?.message || 'Failed to delete bill');
+    }
+  };
 
   const statusOptions = [
     { value: '', label: 'All Status' },
@@ -482,6 +528,15 @@ const PrintBillPage = () => {
                                 title="Mark Payment"
                               >
                                 <DollarSign className="w-5 h-5" />
+                              </button>
+                            )}
+                            {user?.role === 'CA' && (
+                              <button
+                                onClick={() => handleDeleteBill(bill)}
+                                className="text-red-600 hover:text-red-900"
+                                title="Delete Bill"
+                              >
+                                <Trash2 className="w-5 h-5" />
                               </button>
                             )}
                           </div>
@@ -905,6 +960,166 @@ const PrintBillPage = () => {
         billNo={selectedBillForPayment?.bill_no}
         totalAmount={selectedBillForPayment?.total_invoice_value}
       />
+
+      {/* Finalize Confirmation Modal */}
+      <Modal
+        isOpen={showFinalizeModal}
+        onClose={() => {
+          setShowFinalizeModal(false);
+          setFinalizeConfirmed(false);
+        }}
+        title="Finalize Bill - Confirm Action"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <div className="flex items-start space-x-3">
+              <AlertTriangle className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-yellow-900">Warning: This action cannot be undone</p>
+                <p className="text-sm text-yellow-700 mt-1">
+                  Once finalized, you will not be able to edit or delete this bill.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {selectedBill && (
+            <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+              <h4 className="text-sm font-semibold text-gray-900 mb-3">Bill Summary</h4>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="text-gray-600">Bill Number:</div>
+                <div className="font-semibold text-gray-900">{selectedBill.bill_no}</div>
+                
+                <div className="text-gray-600">Bill Date:</div>
+                <div className="font-semibold text-gray-900">{formatDate(selectedBill.bill_date)}</div>
+                
+                <div className="text-gray-600">Client:</div>
+                <div className="font-semibold text-gray-900">{selectedBill.client_name || 'N/A'}</div>
+                
+                <div className="text-gray-600">Number of Services:</div>
+                <div className="font-semibold text-gray-900">{selectedBill.services?.length || 0}</div>
+                
+                <div className="text-gray-600">Total Amount:</div>
+                <div className="font-bold text-primary-600 text-lg">{formatCurrency(selectedBill.total_invoice_value)}</div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-start space-x-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <input
+              type="checkbox"
+              id="finalize-confirm"
+              checked={finalizeConfirmed}
+              onChange={(e) => setFinalizeConfirmed(e.target.checked)}
+              className="mt-1 w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+            />
+            <label htmlFor="finalize-confirm" className="text-sm text-gray-700 cursor-pointer">
+              I understand this bill cannot be edited after finalization and I have verified all details are correct.
+            </label>
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-4">
+            <button
+              onClick={() => {
+                setShowFinalizeModal(false);
+                setFinalizeConfirmed(false);
+              }}
+              className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmFinalize}
+              disabled={!finalizeConfirmed || finalizingBill}
+              className="px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {finalizingBill ? 'Finalizing...' : 'Finalize Bill'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* NEW: Delete Bill Confirmation Modal */}
+      <Modal
+        isOpen={showDeleteModal}
+        onClose={() => {
+          setShowDeleteModal(false);
+          setBillToDelete(null);
+          setDeleteConfirmText('');
+        }}
+        title="Delete Bill - Confirm Action"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="flex items-start space-x-3">
+              <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-red-900">Permanent Deletion Warning</p>
+                <p className="text-sm text-red-700 mt-1">
+                  This will permanently delete the bill and all associated data. This action cannot be undone.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {billToDelete && (
+            <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+              <h4 className="text-sm font-semibold text-gray-900 mb-3">Bill to be Deleted</h4>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="text-gray-600">Bill Number:</div>
+                <div className="font-semibold text-gray-900">{billToDelete.bill_no}</div>
+                
+                <div className="text-gray-600">Total Amount:</div>
+                <div className="font-semibold text-red-600">{formatCurrency(billToDelete.total_invoice_value)}</div>
+                
+                <div className="text-gray-600">Created On:</div>
+                <div className="font-semibold text-gray-900">{formatDate(billToDelete.created_at)}</div>
+                
+                <div className="text-gray-600">Created By:</div>
+                <div className="font-semibold text-gray-900">{billToDelete.created_by_name}</div>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">
+              Type <span className="font-mono font-bold text-red-600">{billToDelete?.bill_no}</span> to confirm deletion:
+            </label>
+            <input
+              type="text"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder="Enter bill number exactly"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+            />
+            {deleteConfirmText && deleteConfirmText !== billToDelete?.bill_no && (
+              <p className="text-xs text-red-600">Bill number does not match</p>
+            )}
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-4">
+            <button
+              onClick={() => {
+                setShowDeleteModal(false);
+                setBillToDelete(null);
+                setDeleteConfirmText('');
+              }}
+              className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmDelete}
+              disabled={deleteConfirmText !== billToDelete?.bill_no}
+              className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Delete Permanently
+            </button>
+          </div>
+        </div>
+      </Modal>
 
     </div>
   );

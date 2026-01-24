@@ -12,6 +12,7 @@ const ServiceRow = ({
   onRemove,
   particularsOptions,
   gstRatesOptions,
+  hasError = false,
 }) => {
   const yearOptions = getYearOptions().map((year) => ({
     value: year,
@@ -23,7 +24,10 @@ const ServiceRow = ({
   };
 
   return (
-    <tr className="border-b hover:bg-gray-50">
+    <tr 
+      className={`border-b hover:bg-gray-50 ${hasError ? 'bg-red-50 border-red-300' : ''}`}
+      data-service-index={index}
+    >
       {/* Sr. No */}
       <td className="px-4 py-3 text-center font-medium text-gray-700">
         {index + 1}

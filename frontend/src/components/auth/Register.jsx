@@ -19,6 +19,17 @@ const Register = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const calculatePasswordStrength = (password) => {
+    let strength = 0;
+    if (password.length >= 6) strength++;
+    if (password.length >= 10) strength++;
+    if (/[A-Z]/.test(password)) strength++;
+    if (/[a-z]/.test(password)) strength++;
+    if (/[0-9]/.test(password)) strength++;
+    if (/[!@#$%^&*]/.test(password)) strength++;
+    return Math.min(strength, 5);
+  };
+
   const handleChange = (e) => {
     setFormData({
       ...formData,
@@ -177,7 +188,7 @@ const Register = () => {
             </select>
           </div>
 
-          {/* Password */}
+          {/* Password with Strength Indicator */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Password <span className="text-red-500">*</span>
@@ -205,6 +216,68 @@ const Register = () => {
                 )}
               </button>
             </div>
+            
+            {/* NEW: Password Strength Meter */}
+            {formData.password && (
+              <div className="mt-2 space-y-2">
+                {/* Strength Bar */}
+                <div className="flex space-x-1">
+                  {[1, 2, 3, 4, 5].map((level) => (
+                    <div
+                      key={level}
+                      className={`h-1 flex-1 rounded ${
+                        level <= calculatePasswordStrength(formData.password)
+                          ? calculatePasswordStrength(formData.password) <= 2
+                            ? 'bg-red-500'
+                            : calculatePasswordStrength(formData.password) <= 4
+                            ? 'bg-yellow-500'
+                            : 'bg-green-500'
+                          : 'bg-gray-200'
+                      }`}
+                    ></div>
+                  ))}
+                </div>
+                
+                {/* Strength Label */}
+                <p className={`text-xs font-medium ${
+                  calculatePasswordStrength(formData.password) <= 2
+                    ? 'text-red-600'
+                    : calculatePasswordStrength(formData.password) <= 4
+                    ? 'text-yellow-600'
+                    : 'text-green-600'
+                }`}>
+                  {calculatePasswordStrength(formData.password) <= 2
+                    ? 'Weak Password'
+                    : calculatePasswordStrength(formData.password) <= 4
+                    ? 'Medium Password'
+                    : 'Strong Password'}
+                </p>
+                
+                {/* Requirements Checklist */}
+                <div className="space-y-1 text-xs">
+                  <div className={`flex items-center space-x-2 ${formData.password.length >= 6 ? 'text-green-600' : 'text-gray-500'}`}>
+                    <span>{formData.password.length >= 6 ? '✓' : '✗'}</span>
+                    <span>At least 6 characters</span>
+                  </div>
+                  <div className={`flex items-center space-x-2 ${/[A-Z]/.test(formData.password) ? 'text-green-600' : 'text-gray-500'}`}>
+                    <span>{/[A-Z]/.test(formData.password) ? '✓' : '✗'}</span>
+                    <span>Contains uppercase letter</span>
+                  </div>
+                  <div className={`flex items-center space-x-2 ${/[a-z]/.test(formData.password) ? 'text-green-600' : 'text-gray-500'}`}>
+                    <span>{/[a-z]/.test(formData.password) ? '✓' : '✗'}</span>
+                    <span>Contains lowercase letter</span>
+                  </div>
+                  <div className={`flex items-center space-x-2 ${/[0-9]/.test(formData.password) ? 'text-green-600' : 'text-gray-500'}`}>
+                    <span>{/[0-9]/.test(formData.password) ? '✓' : '✗'}</span>
+                    <span>Contains number</span>
+                  </div>
+                  <div className={`flex items-center space-x-2 ${/[!@#$%^&*]/.test(formData.password) ? 'text-green-600' : 'text-gray-500'}`}>
+                    <span>{/[!@#$%^&*]/.test(formData.password) ? '✓' : '✗'}</span>
+                    <span>Contains special character (!@#$%^&*)</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Confirm Password */}

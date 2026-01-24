@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
+import './styles/animations.css';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './components/auth/Login';
 import Navbar from './components/layout/Navbar';
@@ -59,8 +60,12 @@ function App() {
           toastOptions={{
             duration: 3000,
             style: {
-              background: '#363636',
-              color: '#fff',
+              background: '#fff',
+              color: '#363636',
+              fontSize: '14px',
+              padding: '16px',
+              borderRadius: '8px',
+              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
             },
             success: {
               duration: 3000,
@@ -68,12 +73,18 @@ function App() {
                 primary: '#10b981',
                 secondary: '#fff',
               },
+              style: {
+                border: '1px solid #10b981',
+              },
             },
             error: {
               duration: 4000,
               iconTheme: {
                 primary: '#ef4444',
                 secondary: '#fff',
+              },
+              style: {
+                border: '1px solid #ef4444',
               },
             },
           }}

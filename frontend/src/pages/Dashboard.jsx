@@ -1,181 +1,17 @@
-// import { useEffect, useState } from 'react';
-// import { billAPI } from '../services/api';
-// import { FileText, TrendingUp, IndianRupee, Clock } from 'lucide-react';
-// import { formatCurrency, formatDate } from '../utils/helpers';
-// import toast from 'react-hot-toast';
-
-// const Dashboard = () => {
-//   const [stats, setStats] = useState({
-//     totalBills: 0,
-//     draftBills: 0,
-//     finalizedBills: 0,
-//     totalRevenue: 0,
-//   });
-//   const [recentBills, setRecentBills] = useState([]);
-//   const [loading, setLoading] = useState(true);
-
-//   useEffect(() => {
-//     fetchDashboardData();
-//   }, []);
-
-//   const fetchDashboardData = async () => {
-//     try {
-//       const response = await billAPI.getAllBills({ limit: 10 });
-//       const bills = response.data.data;
-
-//       // Calculate stats
-//       const totalBills = bills.length;
-//       const draftBills = bills.filter((b) => b.status === 'DRAFT').length;
-//       const finalizedBills = bills.filter((b) => b.status === 'FINALIZED').length;
-//       const totalRevenue = bills.reduce((sum, b) => sum + parseFloat(b.total_invoice_value || 0), 0);
-
-//       setStats({ totalBills, draftBills, finalizedBills, totalRevenue });
-//       setRecentBills(bills);
-//       setLoading(false);
-//     } catch (error) {
-//       console.error('Failed to fetch dashboard data:', error);
-//       toast.error('Failed to load dashboard data');
-//       setLoading(false);
-//     }
-//   };
-
-//   const statCards = [
-//     {
-//       title: 'Total Bills',
-//       value: stats.totalBills,
-//       icon: FileText,
-//       color: 'bg-blue-500',
-//     },
-//     {
-//       title: 'Draft Bills',
-//       value: stats.draftBills,
-//       icon: Clock,
-//       color: 'bg-yellow-500',
-//     },
-//     {
-//       title: 'Finalized Bills',
-//       value: stats.finalizedBills,
-//       icon: TrendingUp,
-//       color: 'bg-green-500',
-//     },
-//     {
-//       title: 'Total Revenue',
-//       value: formatCurrency(stats.totalRevenue),
-//       icon: IndianRupee,
-//       color: 'bg-purple-500',
-//     },
-//   ];
-
-//   if (loading) {
-//     return (
-//       <div className="flex items-center justify-center h-screen">
-//         <div className="spinner"></div>
-//       </div>
-//     );
-//   }
-
-//   return (
-//     <div className="p-6">
-//       <h1 className="text-3xl font-bold text-gray-900 mb-6">Dashboard</h1>
-
-//       {/* Stats Grid */}
-//       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-//         {statCards.map((stat, index) => (
-//           <div key={index} className="bg-white rounded-lg shadow p-6">
-//             <div className="flex items-center justify-between">
-//               <div>
-//                 <p className="text-sm font-medium text-gray-600">{stat.title}</p>
-//                 <p className="text-2xl font-bold text-gray-900 mt-2">{stat.value}</p>
-//               </div>
-//               <div className={`${stat.color} rounded-full p-3`}>
-//                 <stat.icon className="w-6 h-6 text-white" />
-//               </div>
-//             </div>
-//           </div>
-//         ))}
-//       </div>
-
-//       {/* Recent Bills */}
-//       <div className="bg-white rounded-lg shadow">
-//         <div className="p-6 border-b">
-//           <h2 className="text-xl font-semibold text-gray-900">Recent Bills</h2>
-//         </div>
-//         <div className="overflow-x-auto">
-//           <table className="w-full">
-//             <thead className="bg-gray-50">
-//               <tr>
-//                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-//                   Bill No
-//                 </th>
-//                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-//                   Company
-//                 </th>
-//                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-//                   Created By
-//                 </th>
-//                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-//                   Date
-//                 </th>
-//                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-//                   Amount
-//                 </th>
-//                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-//                   Status
-//                 </th>
-//               </tr>
-//             </thead>
-//             <tbody className="bg-white divide-y divide-gray-200">
-//               {recentBills.map((bill) => (
-//                 <tr key={bill.id} className="hover:bg-gray-50">
-//                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-//                     {bill.bill_no}
-//                   </td>
-//                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-//                     {bill.company_name}
-//                   </td>
-//                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-//                     {bill.created_by_name}
-//                   </td>
-//                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-//                     {formatDate(bill.bill_date)}
-//                   </td>
-//                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
-//                     {formatCurrency(bill.total_invoice_value)}
-//                   </td>
-//                   <td className="px-6 py-4 whitespace-nowrap">
-//                     <span
-//                       className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-//                         bill.status === 'DRAFT'
-//                           ? 'bg-yellow-100 text-yellow-800'
-//                           : bill.status === 'FINALIZED'
-//                           ? 'bg-green-100 text-green-800'
-//                           : 'bg-gray-100 text-gray-800'
-//                       }`}
-//                     >
-//                       {bill.status}
-//                     </span>
-//                   </td>
-//                 </tr>
-//               ))}
-//             </tbody>
-//           </table>
-//         </div>
-//       </div>
-//     </div>
-//   );
-// };
-
-// export default Dashboard;
-
 import { useEffect, useState } from 'react';
-import { FileText, TrendingUp, IndianRupee, Clock, Download } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { FileText, TrendingUp, IndianRupee, Clock, Download, Plus, DollarSign, ArrowUp, ArrowDown } from 'lucide-react';
 import { formatCurrency, formatDate, getFinancialYear } from '../utils/helpers';
 import toast from 'react-hot-toast';
 import api from '../services/api';
 import Dropdown from '../components/common/Dropdown';
 import DatePicker from 'react-datepicker';
+import { CardSkeleton } from '../components/common/SkeletonLoader';
+import EmptyState from '../components/common/EmptyState';
 
 const Dashboard = () => {
+  const navigate = useNavigate();
+  
   const [kpis, setKpis] = useState({
     summary: {
       total_bills: 0,
@@ -349,24 +185,28 @@ const Dashboard = () => {
       value: formatCurrency(kpis.summary.total_billed),
       icon: FileText,
       color: 'bg-blue-500',
+      bgLight: 'bg-blue-100',
     },
     {
       title: 'Payment Received',
       value: formatCurrency(kpis.summary.total_paid),
       icon: TrendingUp,
       color: 'bg-green-500',
+      bgLight: 'bg-green-100',
     },
     {
       title: 'Payment Receivable',
       value: formatCurrency(kpis.summary.total_outstanding),
       icon: IndianRupee,
       color: 'bg-red-500',
+      bgLight: 'bg-red-100',
     },
     {
       title: 'Collection Rate',
       value: `${kpis.summary.collection_rate}%`,
       icon: Clock,
       color: 'bg-purple-500',
+      bgLight: 'bg-purple-100',
     },
   ];
 
@@ -420,23 +260,49 @@ const Dashboard = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="spinner"></div>
+      <div className="p-6">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-gray-600">Welcome back! Here's what's happening today.</p>
+        </div>
+        <CardSkeleton count={4} />
       </div>
     );
   }
 
   return (
     <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+      {/* Header */}
+      <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-        <button
-          onClick={handleExportExcel}
-          className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-        >
-          <Download className="w-4 h-4" />
-          <span>Export to Excel</span>
-        </button>
+        <p className="text-gray-600 mt-2">Welcome back! Here's what's happening today.</p>
+      </div>
+
+      {/* Quick Actions Bar */}
+      <div className="bg-white rounded-lg shadow-md p-4 mb-6">
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={() => navigate('/services-form')}
+            className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Create New Bill</span>
+          </button>
+          <button
+            onClick={() => navigate('/print-bill')}
+            className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+          >
+            <DollarSign className="w-4 h-4" />
+            <span>Record Payment</span>
+          </button>
+          <button
+            onClick={handleExportExcel}
+            className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            <span>Download Reports</span>
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -529,19 +395,18 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Stats Grid */}
+      {/* Enhanced Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         {statCards.map((stat, index) => (
-          <div key={index} className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">{stat.title}</p>
-                <p className="text-2xl font-bold text-gray-900 mt-2">{stat.value}</p>
-              </div>
-              <div className={`${stat.color} rounded-full p-3`}>
-                <stat.icon className="w-6 h-6 text-white" />
+          <div key={index} className="bg-white rounded-lg shadow-md p-6 border-l-4 border-transparent hover:shadow-lg transition-shadow" style={{ borderLeftColor: stat.color.replace('bg-', '#') }}>
+            <div className="flex items-center justify-between mb-4">
+              <div className={`w-12 h-12 ${stat.bgLight} rounded-lg flex items-center justify-center`}>
+                <stat.icon className={`w-6 h-6 ${stat.color.replace('bg-', 'text-')}`} />
               </div>
             </div>
+            <h3 className="text-gray-600 text-sm font-medium mb-1">{stat.title}</h3>
+            <p className="text-3xl font-bold text-gray-900 mb-2">{stat.value}</p>
+            <p className="text-xs text-gray-500">Current period</p>
           </div>
         ))}
       </div>
@@ -552,48 +417,58 @@ const Dashboard = () => {
           <h2 className="text-xl font-semibold text-gray-900">Company-wise Receivables</h2>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Company
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                  Bills
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  Total Billed
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  Paid
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  Outstanding
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {kpis.by_company.map((company) => (
-                <tr key={company.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                    {company.company_name}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-600 text-center">
-                    {company.bill_count}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900 font-medium text-right">
-                    {formatCurrency(company.total_billed)}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-green-600 font-medium text-right">
-                    {formatCurrency(company.total_paid)}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-red-600 font-bold text-right">
-                    {formatCurrency(company.outstanding)}
-                  </td>
+          {kpis.by_company.length === 0 ? (
+            <div className="py-12">
+              <EmptyState
+                type="default"
+                title="No company data available"
+                description="Data will appear here once bills are created for companies"
+              />
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Company
+                  </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                    Bills
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                    Total Billed
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                    Paid
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                    Outstanding
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {kpis.by_company.map((company) => (
+                  <tr key={company.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                      {company.company_name}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-600 text-center">
+                      {company.bill_count}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900 font-medium text-right">
+                      {formatCurrency(company.total_billed)}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-green-600 font-medium text-right">
+                      {formatCurrency(company.total_paid)}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-red-600 font-bold text-right">
+                      {formatCurrency(company.outstanding)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
@@ -603,48 +478,58 @@ const Dashboard = () => {
           <h2 className="text-xl font-semibold text-gray-900">Top 10 Client Receivables</h2>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Client
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                  Bills
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  Total Billed
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  Paid
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  Outstanding
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {kpis.by_client.map((client) => (
-                <tr key={client.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                    {client.client_name}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-600 text-center">
-                    {client.bill_count}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900 font-medium text-right">
-                    {formatCurrency(client.total_billed)}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-green-600 font-medium text-right">
-                    {formatCurrency(client.total_paid)}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-red-600 font-bold text-right">
-                    {formatCurrency(client.outstanding)}
-                  </td>
+          {kpis.by_client.length === 0 ? (
+            <div className="py-12">
+              <EmptyState
+                type="default"
+                title="No client data available"
+                description="Client receivables will appear here once bills are assigned to clients"
+              />
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Client
+                  </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                    Bills
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                    Total Billed
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                    Paid
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                    Outstanding
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {kpis.by_client.map((client) => (
+                  <tr key={client.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                      {client.client_name}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-600 text-center">
+                      {client.bill_count}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900 font-medium text-right">
+                      {formatCurrency(client.total_billed)}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-green-600 font-medium text-right">
+                      {formatCurrency(client.total_paid)}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-red-600 font-bold text-right">
+                      {formatCurrency(client.outstanding)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
@@ -656,25 +541,25 @@ const Dashboard = () => {
         </div>
         <div className="p-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-yellow-50 rounded-lg p-4">
+            <div className="bg-yellow-50 rounded-lg p-4 border border-yellow-200">
               <p className="text-xs text-yellow-600 font-medium mb-1">0-30 Days</p>
               <p className="text-2xl font-bold text-yellow-900">
                 {formatCurrency(kpis.aging_analysis['0-30'] || 0)}
               </p>
             </div>
-            <div className="bg-orange-50 rounded-lg p-4">
+            <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
               <p className="text-xs text-orange-600 font-medium mb-1">31-60 Days</p>
               <p className="text-2xl font-bold text-orange-900">
                 {formatCurrency(kpis.aging_analysis['31-60'] || 0)}
               </p>
             </div>
-            <div className="bg-red-50 rounded-lg p-4">
+            <div className="bg-red-50 rounded-lg p-4 border border-red-200">
               <p className="text-xs text-red-600 font-medium mb-1">61-90 Days</p>
               <p className="text-2xl font-bold text-red-900">
                 {formatCurrency(kpis.aging_analysis['61-90'] || 0)}
               </p>
             </div>
-            <div className="bg-rose-50 rounded-lg p-4">
+            <div className="bg-rose-50 rounded-lg p-4 border border-rose-200">
               <p className="text-xs text-rose-600 font-medium mb-1">90+ Days</p>
               <p className="text-2xl font-bold text-rose-900">
                 {formatCurrency(kpis.aging_analysis['90+'] || 0)}

@@ -7,7 +7,11 @@ import { billAPI, paymentAPI } from '../services/api';
 import { formatCurrency, formatDate } from '../utils/helpers';
 import { useAuth } from '../context/AuthContext';
 import MarkPaymentModal from '../components/modals/MarkPaymentModal';
+import { SuccessCheckmark, PaymentAnimation, FinalizeAnimation } from '../components/common/SuccessAnimation';
+import EmptyState from '../components/common/EmptyState';
+import { TableSkeleton } from '../components/common/SkeletonLoader';
 import PaymentHistoryPopup from '../components/modals/PaymentHistoryPopup';
+import PrintPreviewModal from '../components/modals/PrintPreviewModal';
 import Modal from '../components/common/Modal';
 import Dropdown from '../components/common/Dropdown';
 import DatePicker from 'react-datepicker';
@@ -59,7 +63,17 @@ const PrintBillPage = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [billToDelete, setBillToDelete] = useState(null);
-  
+ 
+  // NEW: Animation states
+  const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
+  const [showPaymentAnimation, setShowPaymentAnimation] = useState(false);
+  const [showFinalizeAnimation, setShowFinalizeAnimation] = useState(false);
+  const [animationAmount, setAnimationAmount] = useState('');
+
+  // NEW: Print Preview
+  const [showPrintPreview, setShowPrintPreview] = useState(false);
+  const [previewBill, setPreviewBill] = useState(null);
+
   useEffect(() => {
     if (location.state?.billNo) {
       handleSearchByNumber(location.state.billNo);
@@ -209,7 +223,14 @@ const PrintBillPage = () => {
     setFinalizingBill(true);
     try {
       await billAPI.finalizeBill(selectedBill.id);
-      toast.success('Bill finalized successfully');
+      
+      setShowFinalizeAnimation(true);
+      
+      setTimeout(() => {
+        toast.success('Bill finalized successfully');
+        setShowFinalizeAnimation(false);
+      }, 1200);
+      
       const response = await billAPI.getBillByNumber(selectedBill.bill_no);
       setSelectedBill(response.data.data);
       loadBills();
@@ -224,6 +245,21 @@ const PrintBillPage = () => {
   };
 
   const totalPages = Math.ceil(totalBills / billsPerPage);
+
+  // NEW: Clear filters handler
+  const handleClearFilters = () => {
+    setFilters({
+      status: '',
+      payment_status: '',
+      searchTerm: '',
+      date_from: '',
+      date_to: '',
+      header_id: '',
+      client_id: '',
+      created_by: ''
+    });
+    setCurrentPage(1);
+  };
 
   // NEW: Delete bill handlers
   const handleDeleteBill = (bill) => {
@@ -252,6 +288,29 @@ const PrintBillPage = () => {
     } catch (error) {
       console.error('Failed to delete bill:', error);
       toast.error(error.response?.data?.message || 'Failed to delete bill');
+    }
+  };
+
+  // NEW: Print preview handlers
+  const handleShowPrintPreview = (bill) => {
+    setPreviewBill(bill);
+    setShowPrintPreview(true);
+  };
+
+  const handleDownloadFromPreview = async () => {
+    try {
+      const response = await billAPI.downloadBill(previewBill.id);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${previewBill.bill_no}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success('Bill downloaded successfully');
+    } catch (error) {
+      console.error('Failed to download bill:', error);
+      toast.error('Failed to download bill');
     }
   };
 
@@ -364,19 +423,7 @@ const PrintBillPage = () => {
           
           <div className="flex justify-end space-x-3">
             <button
-              onClick={() => {
-                setFilters({
-                  status: '',
-                  payment_status: '',
-                  searchTerm: '',
-                  date_from: '',
-                  date_to: '',
-                  header_id: '',
-                  client_id: '',
-                  created_by: ''
-                });
-                setCurrentPage(1);
-              }}
+              onClick={handleClearFilters}
               className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
             >
               Clear Filters
@@ -397,51 +444,70 @@ const PrintBillPage = () => {
           {/* Bills Table */}
           <div className="bg-white rounded-lg shadow">
             <div className="overflow-x-auto">
-              {loading ? (
-                <div className="flex items-center justify-center py-12">
-                  <div className="spinner"></div>
-                </div>
-              ) : (
-                <table className="w-full">
-                  <thead className="bg-gray-50">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Bill No
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Company
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Date
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Due Date
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Created By
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Amount
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Payment
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Paid
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Balance
+                    </th>
+                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {loading ? (
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                        Bill No
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                        Company
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                        Date
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                        Due Date
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                        Created By
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Amount
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Payment
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Paid
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Balance
-                      </th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Actions
-                      </th>
+                      <td colSpan="11" className="p-0">
+                        <TableSkeleton rows={8} columns={11} />
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {bills.map((bill) => (
+                  ) : bills.length === 0 ? (
+                    <tr>
+                      <td colSpan="11" className="p-0">
+                        {filters.searchTerm || filters.status || filters.payment_status || filters.date_from || filters.date_to ? (
+                          <EmptyState
+                            type="filtered"
+                            onAction={handleClearFilters}
+                          />
+                        ) : (
+                          <EmptyState
+                            type="noBills"
+                            actionLabel="Create First Bill"
+                            onAction={() => navigate('/services-form')}
+                          />
+                        )}
+                      </td>
+                    </tr>
+                  ) : (
+                    bills.map((bill) => (
                       <tr key={bill.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                           {bill.bill_no}
@@ -457,9 +523,6 @@ const PrintBillPage = () => {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                           {bill.created_by_name}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium text-right">
-                          {formatCurrency(bill.total_invoice_value)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium text-right">
                           {formatCurrency(bill.total_invoice_value)}
@@ -512,9 +575,9 @@ const PrintBillPage = () => {
                         <td className="px-6 py-4 whitespace-nowrap text-center">
                           <div className="flex items-center justify-center space-x-2">
                             <button
-                              onClick={() => handleViewBill(bill)}
+                              onClick={() => handleShowPrintPreview(bill)}
                               className="text-primary-600 hover:text-primary-900"
-                              title="View Bill"
+                              title="Preview Bill"
                             >
                               <Eye className="w-5 h-5" />
                             </button>
@@ -542,10 +605,10 @@ const PrintBillPage = () => {
                           </div>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
 
             {/* Pagination */}
@@ -630,8 +693,6 @@ const PrintBillPage = () => {
                   <span>Edit Bill</span>
                 </button>
                 )}
-              </div>
-
                 {user?.role === 'CA' && selectedBill.payment_status !== 'PAID' && (
                   <button
                     onClick={() => {
@@ -644,6 +705,7 @@ const PrintBillPage = () => {
                     <span>Mark Payment</span>
                   </button>
                 )}
+              </div>
             </div>
 
             {/* Bill Preview */}
@@ -919,7 +981,7 @@ const PrintBillPage = () => {
         </form>
       </Modal>
 
-{/* Mark Payment Modal */}
+      {/* Mark Payment Modal */}
       <MarkPaymentModal
         isOpen={showPaymentModal}
         onClose={() => {
@@ -934,14 +996,25 @@ const PrintBillPage = () => {
               ...paymentData,
               payment_date: paymentData.payment_date.toISOString().split('T')[0]
             });
-            toast.success('Payment recorded successfully');
+            
+            // NEW: Show animation
+            setAnimationAmount(formatCurrency(paymentData.amount_paid));
+            setShowPaymentAnimation(true);
+            
+            setTimeout(() => {
+              toast.success('Payment recorded successfully');
+              setShowPaymentAnimation(false);
+            }, 1500);
+            
             setShowPaymentModal(false);
-            setSelectedBillForPayment(null);
-            loadBills(); // Reload list
-            if (view === 'preview') {
+            loadBills();
+            
+            if (selectedBill && selectedBill.id === selectedBillForPayment.id) {
               const response = await billAPI.getBillByNumber(selectedBill.bill_no);
               setSelectedBill(response.data.data);
             }
+            
+            setSelectedBillForPayment(null);
           } catch (error) {
             console.error('Failed to mark payment:', error);
             toast.error(error.response?.data?.message || 'Failed to mark payment');
@@ -959,6 +1032,22 @@ const PrintBillPage = () => {
         billId={selectedBillForPayment?.id}
         billNo={selectedBillForPayment?.bill_no}
         totalAmount={selectedBillForPayment?.total_invoice_value}
+      />
+
+      {/* Print Preview Modal */}
+      <PrintPreviewModal
+        isOpen={showPrintPreview}
+        onClose={() => {
+          setShowPrintPreview(false);
+          setPreviewBill(null);
+        }}
+        bill={previewBill}
+        onDownload={handleDownloadFromPreview}
+        onEmail={() => {
+          setShowPrintPreview(false);
+          setRecipientEmail(previewBill?.client_email || '');
+          setShowEmailModal(true);
+        }}
       />
 
       {/* Finalize Confirmation Modal */}
@@ -1040,7 +1129,7 @@ const PrintBillPage = () => {
         </div>
       </Modal>
 
-      {/* NEW: Delete Bill Confirmation Modal */}
+      {/* Delete Bill Confirmation Modal */}
       <Modal
         isOpen={showDeleteModal}
         onClose={() => {
@@ -1120,6 +1209,11 @@ const PrintBillPage = () => {
           </div>
         </div>
       </Modal>
+
+      {/* Success Animations */}
+      {showSuccessAnimation && <SuccessCheckmark onComplete={() => setShowSuccessAnimation(false)} />}
+      {showPaymentAnimation && <PaymentAnimation amount={animationAmount} onComplete={() => setShowPaymentAnimation(false)} />}
+      {showFinalizeAnimation && <FinalizeAnimation onComplete={() => setShowFinalizeAnimation(false)} />}
 
     </div>
   );

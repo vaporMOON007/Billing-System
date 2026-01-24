@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Plus, Save, Eye, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { FormSkeleton } from '../components/common/SkeletonLoader';
+import { SuccessCheckmark } from '../components/common/SuccessAnimation';
 import ServiceRow from '../components/forms/ServiceRow';
 import Dropdown from '../components/common/Dropdown';
 import SearchableDropdown from '../components/common/SearchableDropdown'; 
@@ -40,7 +42,7 @@ const ServicesFormPage = () => {
 
   const [serviceErrors, setServiceErrors] = useState([]);
   const [billNumberPreview, setBillNumberPreview] = useState('');
-
+  const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
   const [services, setServices] = useState([
     {
       particulars_id: '',
@@ -355,11 +357,11 @@ const ServicesFormPage = () => {
 
     try {
       // Validate services
-      const validateServices = services.find(
+      const invalidService = services.find(
         (s) => !s.particulars_id || !s.amount || !s.gst_rate_id
       );
 
-      if (validateServices) {
+      if (invalidService) {
         toast.error('Please fill all required fields in services');
         setLoading(false);
         return;
@@ -382,9 +384,15 @@ const ServicesFormPage = () => {
           })),
         };
 
-        const response = await billAPI.updateBill(editBillId, billData);
-        toast.success('Bill updated successfully!');
-        navigate('/print-bill', { state: { billNo: response.data.data.bill_no } });
+        await billAPI.updateBill(editBillId, billData);
+        
+        // NEW: Show animation
+        setShowSuccessAnimation(true);
+        setTimeout(() => {
+          toast.success('Bill updated successfully!');
+          setShowSuccessAnimation(false);
+          navigate('/print-bill');
+        }, 1000);
       } else {
         // CREATE new bill
         const billData = {
@@ -404,8 +412,14 @@ const ServicesFormPage = () => {
         };
 
         const response = await billAPI.createBill(billData);
-        toast.success(`Bill ${response.data.data.bill_no} created successfully!`);
-        navigate('/print-bill', { state: { billNo: response.data.data.bill_no } });
+        
+        // NEW: Show animation
+        setShowSuccessAnimation(true);
+        setTimeout(() => {
+          toast.success(`Bill ${response.data.data.bill_no} created successfully!`);
+          setShowSuccessAnimation(false);
+          navigate('/print-bill', { state: { billNo: response.data.data.bill_no } });
+        }, 1000);
       }
     } catch (error) {
       console.error('Failed to save bill:', error);
@@ -432,196 +446,201 @@ const ServicesFormPage = () => {
     <div className="p-6">
       <h1 className="text-3xl font-bold text-gray-900 mb-6"> {editMode ? 'Edit Bill (DRAFT)' : 'Services Form'}</h1>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Header Section */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Bill Information</h2>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {/* Company Selection */}
-            <Dropdown
-              label="Bill For (Company)"
-              value={formData.header_id}
-              onChange={(value) => setFormData({ ...formData, header_id: value })}
-              options={headerOptions}
-              placeholder="Select Company"
-              disabled={editMode}
-              required
-            />
-
-            {/* Bill Number Preview */}
-            {billNumberPreview && !editMode && (
-              <div className="flex items-center space-x-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
-                <Eye className="w-4 h-4 text-blue-600" />
-                <div>
-                  <p className="text-xs text-blue-600 font-medium">Next Bill Number</p>
-                  <p className="text-sm font-bold text-blue-900">{billNumberPreview}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Bill Date */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Bill Date <span className="text-red-500">*</span>
-              </label>
-              <DatePicker
-                selected={formData.bill_date}
-                onChange={(date) => setFormData({ ...formData, bill_date: date })}
-                dateFormat="dd/MM/yyyy"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+      {/* Show skeleton while loading master data */}
+      {!headers.length || !particulars.length ? (
+        <FormSkeleton fields={8} />
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Header Section */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Bill Information</h2>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {/* Company Selection */}
+              <Dropdown
+                label="Bill For (Company)"
+                value={formData.header_id}
+                onChange={(value) => setFormData({ ...formData, header_id: value })}
+                options={headerOptions}
+                placeholder="Select Company"
+                disabled={editMode}
                 required
               />
-              <p className="text-xs text-gray-500 mt-1">
-                FY: {getFinancialYear(formData.bill_date)}
-              </p>
+
+              {/* Bill Number Preview */}
+              {billNumberPreview && !editMode && (
+                <div className="flex items-center space-x-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+                  <Eye className="w-4 h-4 text-blue-600" />
+                  <div>
+                    <p className="text-xs text-blue-600 font-medium">Next Bill Number</p>
+                    <p className="text-sm font-bold text-blue-900">{billNumberPreview}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Bill Date */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Bill Date <span className="text-red-500">*</span>
+                </label>
+                <DatePicker
+                  selected={formData.bill_date}
+                  onChange={(date) => setFormData({ ...formData, bill_date: date })}
+                  dateFormat="dd/MM/yyyy"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  FY: {getFinancialYear(formData.bill_date)}
+                </p>
+              </div>
+
+              {/* Client Name */}
+              <SearchableDropdown
+                label="Client Name (Optional)"
+                value={formData.client_id}
+                onChange={(value) => setFormData({ ...formData, client_id: value })}
+                options={clientOptions}
+                placeholder="Search client..."
+                onSearch={handleSearchClients}
+                allowCreate
+                onCreate={handleCreateClient}
+              />
+
+              {/* Payment Terms */}
+              <Dropdown
+                label="Payment Terms"
+                value={formData.payment_term_id}
+                onChange={(value) => setFormData({ ...formData, payment_term_id: value })}
+                options={paymentTermOptions}
+                placeholder="Select Payment Terms"
+                required
+              />
             </div>
 
-            {/* Client Name */}
-            <SearchableDropdown
-              label="Client Name (Optional)"
-              value={formData.client_id}
-              onChange={(value) => setFormData({ ...formData, client_id: value })}
-              options={clientOptions}
-              placeholder="Search client..."
-              onSearch={handleSearchClients}
-              allowCreate
-              onCreate={handleCreateClient}
-            />
-
-            {/* Payment Terms */}
-            <Dropdown
-              label="Payment Terms"
-              value={formData.payment_term_id}
-              onChange={(value) => setFormData({ ...formData, payment_term_id: value })}
-              options={paymentTermOptions}
-              placeholder="Select Payment Terms"
-              required
-            />
+            {/* Notes */}
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+              <textarea
+                value={formData.notes}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                rows="2"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="Additional notes (optional)"
+              />
+            </div>
           </div>
 
-          {/* Notes */}
-          <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-            <textarea
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              rows="2"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-              placeholder="Additional notes (optional)"
-            />
-          </div>
-        </div>
+          {/* Services Table */}
+          <div className="bg-white rounded-lg shadow overflow-x-auto">
+            <div className="p-6 border-b flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-gray-900">Services</h2>
+              <button
+                type="button"
+                onClick={handleAddService}
+                className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Row</span>
+              </button>
+            </div>
 
-        {/* Services Table */}
-        <div className="bg-white rounded-lg shadow overflow-x-auto">
-          <div className="p-6 border-b flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-gray-900">Services</h2>
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Sr. No
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Particulars
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Date
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Year
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Amount
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    GST Rate
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                    GST Amount
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                    Total
+                  </th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {services.map((service, index) => (
+                  <ServiceRow
+                    key={index}
+                    service={service}
+                    index={index}
+                    onChange={handleServiceChange}
+                    onRemove={handleRemoveService}
+                    particularsOptions={particularsOptions}
+                    gstRatesOptions={gstRateOptions}
+                    hasError={serviceErrors.includes(index)}
+                  />
+                ))}
+              </tbody>
+              <tfoot className="bg-gray-50 font-semibold">
+                <tr>
+                  <td colSpan="7" className="px-4 py-3 text-right">
+                    Subtotal:
+                  </td>
+                  <td className="px-4 py-3 text-right">{formatCurrency(totals.subtotal)}</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr>
+                  <td colSpan="7" className="px-4 py-3 text-right">
+                    GST Total:
+                  </td>
+                  <td className="px-4 py-3 text-right">{formatCurrency(totals.gstTotal)}</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+                <tr className="text-lg">
+                  <td colSpan="7" className="px-4 py-3 text-right">
+                    Total Invoice Value:
+                  </td>
+                  <td className="px-4 py-3 text-right text-primary-600">
+                    {formatCurrency(totals.total)}
+                  </td>
+                  <td></td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {/* Submit Button */}
+          <div className="flex justify-end">
             <button
-              type="button"
-              onClick={handleAddService}
-              className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              type="submit"
+              disabled={loading}
+              className="flex items-center space-x-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Plus className="w-4 h-4" />
-              <span>Add Row</span>
+              <Save className="w-5 h-5" />
+              <span>
+                {loading 
+                  ? (editMode ? 'Updating Bill...' : 'Creating Bill...')
+                  : (editMode ? 'Update Bill' : 'Create Bill')
+                }
+              </span>
             </button>
           </div>
+        </form>
+      )}
 
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Sr. No
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Particulars
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Date
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Year
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Amount
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  GST Rate
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  GST Amount
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  Total
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {services.map((service, index) => (
-                <ServiceRow
-                  key={index}
-                  service={service}
-                  index={index}
-                  onChange={handleServiceChange}
-                  onRemove={handleRemoveService}
-                  particularsOptions={particularsOptions}
-                  gstRatesOptions={gstRateOptions}
-                  hasError={serviceErrors.includes(index)}
-                />
-              ))}
-            </tbody>
-            <tfoot className="bg-gray-50 font-semibold">
-              <tr>
-                <td colSpan="7" className="px-4 py-3 text-right">
-                  Subtotal:
-                </td>
-                <td className="px-4 py-3 text-right">{formatCurrency(totals.subtotal)}</td>
-                <td></td>
-                <td></td>
-              </tr>
-              <tr>
-                <td colSpan="7" className="px-4 py-3 text-right">
-                  GST Total:
-                </td>
-                <td className="px-4 py-3 text-right">{formatCurrency(totals.gstTotal)}</td>
-                <td></td>
-                <td></td>
-              </tr>
-              <tr className="text-lg">
-                <td colSpan="7" className="px-4 py-3 text-right">
-                  Total Invoice Value:
-                </td>
-                <td className="px-4 py-3 text-right text-primary-600">
-                  {formatCurrency(totals.total)}
-                </td>
-                <td></td>
-                <td></td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-
-        {/* Submit Button */}
-        <div className="flex justify-end">
-          <button
-            type="submit"
-            disabled={loading}
-            className="flex items-center space-x-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Save className="w-5 h-5" />
-            <span>
-              {loading 
-                ? (editMode ? 'Updating Bill...' : 'Creating Bill...')
-                : (editMode ? 'Update Bill' : 'Create Bill')
-              }
-            </span>
-          </button>
-        </div>
-      </form>
-
-{/* New Client Modal */}
+      {/* New Client Modal */}
       <Modal
         isOpen={showClientModal}
         onClose={() => {
@@ -793,6 +812,9 @@ const ServicesFormPage = () => {
           </div>
         </form>
       </Modal>
+
+      {/* Success Animation */}
+      {showSuccessAnimation && <SuccessCheckmark onComplete={() => setShowSuccessAnimation(false)} />}
     </div>
   );
 };

@@ -292,7 +292,7 @@ const Dashboard = () => {
             onClick={() => navigate('/print-bill')}
             className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
           >
-            <DollarSign className="w-4 h-4" />
+            <IndianRupee className="w-4 h-4" />
             <span>Record Payment</span>
           </button>
           <button

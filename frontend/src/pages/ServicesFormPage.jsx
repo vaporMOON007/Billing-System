@@ -16,6 +16,7 @@ const ServicesFormPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [loading, setLoading] = useState(false);
+  const [masterDataLoading, setMasterDataLoading] = useState(true);
   const [showClientModal, setShowClientModal] = useState(false);
   const [newClientName, setNewClientName] = useState('');
   const [editMode, setEditMode] = useState(false);
@@ -100,6 +101,7 @@ const ServicesFormPage = () => {
   };
 
   const loadMasterData = async () => {
+    setMasterDataLoading(true);
     try {
       const [headersRes, particularsRes, clientsRes, gstRes, paymentRes] = await Promise.all([
         masterAPI.getAllHeaders(),
@@ -117,7 +119,10 @@ const ServicesFormPage = () => {
     } catch (error) {
       console.error('Failed to load master data:', error);
       toast.error('Failed to load form data');
+    }finally {
+      setMasterDataLoading(false);
     }
+    
   };
 
   // Load bill data if editing
@@ -446,9 +451,10 @@ const ServicesFormPage = () => {
     <div className="p-6">
       <h1 className="text-3xl font-bold text-gray-900 mb-6"> {editMode ? 'Edit Bill (DRAFT)' : 'Services Form'}</h1>
 
-      {/* Show skeleton while loading master data */}
-      {!headers.length || !particulars.length ? (
-        <FormSkeleton fields={8} />
+      {masterDataLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="spinner"></div>
+        </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Header Section */}
@@ -638,6 +644,17 @@ const ServicesFormPage = () => {
             </button>
           </div>
         </form>
+      )}
+
+      {/* Success Animation */}
+      {showSuccessAnimation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+          <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center animate-bounce">
+            <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+        </div>
       )}
 
       {/* New Client Modal */}

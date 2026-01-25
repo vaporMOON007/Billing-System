@@ -308,15 +308,17 @@ const Dashboard = () => {
       {/* Filters */}
       <div className="bg-white rounded-lg shadow p-6 mb-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Filters</h2>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Dropdown
-            label="Financial Year"
-            value={filters.financial_year}
-            onChange={(value) => setFilters({ ...filters, financial_year: value })}
-            options={fyOptions}
-          />
+        <div className="grid grid-cols-12 gap-4">
+          <div className="col-span-12">
+            <Dropdown
+              label="Financial Year"
+              value={filters.financial_year}
+              onChange={(value) => setFilters({ ...filters, financial_year: value })}
+              options={fyOptions}
+            />
+          </div>
 
-          <div>
+          <div className="col-span-3">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Date From
             </label>
@@ -330,7 +332,7 @@ const Dashboard = () => {
             />
           </div>
 
-          <div>
+          <div className="col-span-3">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Date To
             </label>
@@ -344,40 +346,50 @@ const Dashboard = () => {
             />
           </div>
 
-          <Dropdown
-            label="Month"
-            value={filters.month}
-            onChange={(value) => setFilters({ ...filters, month: value })}
-            options={monthOptions}
-          />
+          <div className="col-span-3">
+            <Dropdown
+              label="Month"
+              value={filters.month}
+              onChange={(value) => setFilters({ ...filters, month: value })}
+              options={monthOptions}
+            />
+          </div>
 
-          <Dropdown
-            label="Year"
-            value={filters.year}
-            onChange={(value) => setFilters({ ...filters, year: value })}
-            options={yearOptions}
-          />
+          <div className="col-span-3">
+            <Dropdown
+              label="Year"
+              value={filters.year}
+              onChange={(value) => setFilters({ ...filters, year: value })}
+              options={yearOptions}
+            />
+          </div>
 
-          <Dropdown
-            label="Company"
-            value={filters.header_id}
-            onChange={(value) => setFilters({ ...filters, header_id: value })}
-            options={companyOptions}
-          />
+          <div className="col-span-4">
+            <Dropdown
+              label="Company"
+              value={filters.header_id}
+              onChange={(value) => setFilters({ ...filters, header_id: value })}
+              options={companyOptions}
+            />
+          </div>
 
-          <Dropdown
-            label="Client"
-            value={filters.client_id}
-            onChange={(value) => setFilters({ ...filters, client_id: value })}
-            options={clientOptions}
-          />
+          <div className="col-span-4">
+            <Dropdown
+              label="Client"
+              value={filters.client_id}
+              onChange={(value) => setFilters({ ...filters, client_id: value })}
+              options={clientOptions}
+            />
+          </div>
 
-          <Dropdown
-            label="Payment Status"
-            value={filters.payment_status}
-            onChange={(value) => setFilters({ ...filters, payment_status: value })}
-            options={paymentStatusOptions}
-          />
+          <div className="col-span-4">
+            <Dropdown
+              label="Payment Status"
+              value={filters.payment_status}
+              onChange={(value) => setFilters({ ...filters, payment_status: value })}
+              options={paymentStatusOptions}
+            />
+          </div>
         </div>
         <div className="flex justify-end space-x-3 mt-4">
           <button

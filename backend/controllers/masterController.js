@@ -52,7 +52,7 @@ exports.createHeader = async (req, res) => {
     } = req.body;
 
     await client.query(
-      `INSERT INTO bank_details_master 
+      `INSERT INTO header_bank_details
        (header_id, bank_name, account_holder_name, account_number, ifsc_code, branch_name)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [header.id, bank_name, account_holder_name, account_number, ifsc_code, branch_name]
@@ -121,7 +121,7 @@ exports.getHeaderById = async (req, res) => {
     }
 
     const bankResult = await query(
-      'SELECT * FROM bank_details_master WHERE header_id = $1',
+      'SELECT * FROM header_bank_details WHERE header_id = $1',
       [id]
     );
 
@@ -146,12 +146,15 @@ exports.getHeaderById = async (req, res) => {
 // @route   PUT /api/masters/headers/:id
 // @access  Private
 exports.updateHeader = async (req, res) => {
+  const client = await require('../config/database').pool.connect();
   try {
+    await client.query('BEGIN');
+
     const { id } = req.params;
     const updates = req.body;
 
-    const result = await query(
-      `UPDATE header_master 
+    const result = await client.query(
+      `UPDATE header_master
        SET company_name = COALESCE($1, company_name),
            proprietor_name = COALESCE($2, proprietor_name),
            address_line1 = COALESCE($3, address_line1),
@@ -173,11 +176,32 @@ exports.updateHeader = async (req, res) => {
     );
 
     if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({
         success: false,
         message: 'Company not found'
       });
     }
+
+    // Update bank details in header_bank_details if any bank field is provided
+    if (updates.bank_name !== undefined || updates.account_number !== undefined ||
+        updates.ifsc_code !== undefined || updates.branch_name !== undefined ||
+        updates.account_holder_name !== undefined) {
+      await client.query(
+        `UPDATE header_bank_details
+         SET bank_name = COALESCE($1, bank_name),
+             account_holder_name = COALESCE($2, account_holder_name),
+             account_number = COALESCE($3, account_number),
+             ifsc_code = COALESCE($4, ifsc_code),
+             branch_name = COALESCE($5, branch_name),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE header_id = $6`,
+        [updates.bank_name, updates.account_holder_name, updates.account_number,
+         updates.ifsc_code, updates.branch_name, id]
+      );
+    }
+
+    await client.query('COMMIT');
 
     res.json({
       success: true,
@@ -185,12 +209,15 @@ exports.updateHeader = async (req, res) => {
       data: result.rows[0]
     });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Update header error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to update company',
       error: error.message
     });
+  } finally {
+    client.release();
   }
 };
 
@@ -262,10 +289,10 @@ exports.createParticular = async (req, res) => {
     const { service_name, sac_code, rate } = req.body;
 
     const result = await query(
-      `INSERT INTO particulars_master (service_name, sac_code, rate)
-       VALUES ($1, $2, $3)
+      `INSERT INTO particulars_master (service_name)
+       VALUES ($1)
        RETURNING *`,
-      [service_name, sac_code, rate]
+      [service_name]
     );
 
     res.status(201).json({
@@ -294,8 +321,6 @@ exports.updateParticular = async (req, res) => {
     const result = await query(
       `UPDATE particulars_master 
        SET service_name = COALESCE($1, service_name),
-           sac_code = COALESCE($2, sac_code),
-           rate = COALESCE($3, rate),
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $4
        RETURNING *`,

@@ -19,7 +19,7 @@ const paymentRoutes = require('./routes/paymentRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 
 // Connect to database
-// connectDB();
+connectDB();
 
 // Health check route
 app.get('/health', (req, res) => {

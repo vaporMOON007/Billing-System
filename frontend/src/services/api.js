@@ -68,16 +68,22 @@ export const paymentAPI = {
 export const billAPI = {
   createBill: (billData) => api.post('/bills', billData),
   getAllBills: (params) => api.get('/bills', { params }),
-  getBillByNumber: (billNo) => api.get(`/bills/${billNo}`),
+  getBillByNumber: (billNo) => api.get('/bills/search', { params: { bill_no: billNo } }),
+  getBillById: (id) => api.get(`/bills/${id}`),
   updateBill: (id, billData) => api.put(`/bills/${id}`, billData),
   deleteBill: (id) => api.delete(`/bills/${id}`),
-  finalizeBill: (id) => api.post(`/bills/${id}/finalize`),
-  generatePDF: (id) => api.get(`/bills/${id}/pdf`),
+  finalizeBill: (id) => api.put(`/bills/${id}/finalize`),
+  generatePDF: (id) => api.get(`/bills/${id}/pdf`, { responseType: 'blob' }),
+  downloadBill: (id) => api.get(`/bills/${id}/pdf`, { responseType: 'blob' }),
   sendEmail: (id, emailData) => api.post(`/bills/${id}/email`, emailData),
   addServiceToBill: (billId, serviceData) => api.post(`/bills/${billId}/services`, serviceData),
   deleteService: (serviceId) => api.delete(`/bills/services/${serviceId}`),
   previewBillNumber: (params) => api.get('/bills/preview-number', { params }),
-
+  // Edit lock
+  acquireLock: (billId) => api.post(`/bills/${billId}/lock`),
+  refreshLock: (billId) => api.put(`/bills/${billId}/lock/refresh`),
+  releaseLock: (billId) => api.delete(`/bills/${billId}/lock`),
+  checkLock: (billId) => api.get(`/bills/${billId}/lock`),
 };
 
 // ============================================================================
@@ -103,6 +109,7 @@ export const masterAPI = {
   getHeaderById: (id) => api.get(`/masters/headers/${id}`),
   createHeader: (headerData) => api.post('/masters/headers', headerData),
   updateHeader: (id, headerData) => api.put(`/masters/headers/${id}`, headerData),
+  deleteHeader: (id) => api.delete(`/masters/headers/${id}`),
 
   // Particulars (Services)
   getAllParticulars: () => api.get('/masters/particulars'),

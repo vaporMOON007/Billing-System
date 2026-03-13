@@ -185,10 +185,10 @@ const PrintPreviewModal = ({ isOpen, onClose, bill, onDownload, onEmail, onPrint
                 <tbody>
                   {bill.services?.map((service, index) => (
                     <tr key={index} className="border-b">
-                      <td className="p-2 text-sm">{service.particulars_name}</td>
+                      <td className="p-2 text-sm">{service.particulars_other || service.service_name}</td>
                       <td className="text-right p-2 text-sm">₹{service.amount}</td>
                       <td className="text-right p-2 text-sm">₹{service.gst_amount}</td>
-                      <td className="text-right p-2 text-sm">₹{service.total}</td>
+                      <td className="text-right p-2 text-sm">₹{service.total_amount}</td>
                     </tr>
                   ))}
                 </tbody>

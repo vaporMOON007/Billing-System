@@ -1,17 +1,29 @@
-import { useState } from 'react';
-import { X, DollarSign } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, IndianRupee } from 'lucide-react';
 import DatePicker from 'react-datepicker';
 import toast from 'react-hot-toast';
 import { formatCurrency } from '../../utils/helpers';
 
 const MarkPaymentModal = ({ isOpen, onClose, bill, onPaymentMarked }) => {
   const balance = parseFloat(bill?.total_invoice_value || 0) - parseFloat(bill?.total_paid || 0);
-  
+
   const [formData, setFormData] = useState({
     payment_date: new Date(),
     amount_paid: balance,
     notes: ''
   });
+
+  // Reset form every time the modal opens or a different bill is passed in
+  useEffect(() => {
+    if (isOpen && bill) {
+      const freshBalance = parseFloat(bill.total_invoice_value || 0) - parseFloat(bill.total_paid || 0);
+      setFormData({
+        payment_date: new Date(),
+        amount_paid: freshBalance,
+        notes: ''
+      });
+    }
+  }, [isOpen, bill?.id]);
   
   const [loading, setLoading] = useState(false);
 
@@ -60,7 +72,7 @@ const MarkPaymentModal = ({ isOpen, onClose, bill, onPaymentMarked }) => {
           <div className="flex items-center justify-between p-6 border-b">
             <div className="flex items-center space-x-3">
               <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                <DollarSign className="w-6 h-6 text-green-600" />
+                <IndianRupee className="w-6 h-6 text-green-600" />
               </div>
               <h3 className="text-xl font-semibold text-gray-900">Mark Payment</h3>
             </div>
@@ -129,15 +141,16 @@ const MarkPaymentModal = ({ isOpen, onClose, bill, onPaymentMarked }) => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
                 required
               />
-              {formData.amount_paid !== balance && (
+              <div className="flex justify-center mt-3">
                 <button
                   type="button"
                   onClick={handleMarkFullPayment}
-                  className="mt-2 text-sm text-green-600 hover:text-green-700 font-medium"
+                  className="flex items-center gap-1.5 px-4 py-2 border-2 border-green-600 text-green-600 bg-white rounded-lg hover:bg-green-50 font-semibold text-sm transition-colors"
                 >
+                  <IndianRupee className="w-4 h-4" />
                   Mark Full Payment ({formatCurrency(balance)})
                 </button>
-              )}
+              </div>
             </div>
 
             {/* Notes */}

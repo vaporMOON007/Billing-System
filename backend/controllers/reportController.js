@@ -66,15 +66,15 @@ exports.getDashboardKPIs = async (req, res) => {
       paramCount++;
     }
 
-    // Get overall summary
+    // Get overall summary (exclude DRAFT bills from financial totals)
     const summaryResult = await query(
-      `SELECT 
+      `SELECT
         COUNT(*) as total_bills,
         COALESCE(SUM(total_invoice_value), 0) as total_billed,
         COALESCE(SUM(total_paid), 0) as total_paid,
         COALESCE(SUM(total_invoice_value - COALESCE(total_paid, 0)), 0) as total_outstanding
       FROM bills b
-      ${whereClause}`,
+      ${whereClause} AND b.status != 'DRAFT'`,
       params
     );
 
@@ -83,9 +83,9 @@ exports.getDashboardKPIs = async (req, res) => {
       ? ((summary.total_paid / summary.total_billed) * 100).toFixed(2)
       : 0;
 
-    // Get company-wise breakdown
+    // Get company-wise breakdown (exclude DRAFT bills)
     const companyResult = await query(
-      `SELECT 
+      `SELECT
         h.id,
         h.company_name,
         COUNT(b.id) as bill_count,
@@ -94,15 +94,15 @@ exports.getDashboardKPIs = async (req, res) => {
         COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid, 0)), 0) as outstanding
       FROM bills b
       LEFT JOIN header_master h ON b.header_id = h.id
-      ${whereClause}
+      ${whereClause} AND b.status != 'DRAFT'
       GROUP BY h.id, h.company_name
       ORDER BY outstanding DESC`,
       params
     );
 
-    // Get client-wise breakdown
+    // Get client-wise breakdown (exclude DRAFT bills)
     const clientResult = await query(
-      `SELECT 
+      `SELECT
         c.id,
         c.client_name,
         COUNT(b.id) as bill_count,
@@ -111,38 +111,38 @@ exports.getDashboardKPIs = async (req, res) => {
         COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid, 0)), 0) as outstanding
       FROM bills b
       LEFT JOIN clients_master c ON b.client_id = c.id
-      ${whereClause} AND b.client_id IS NOT NULL
+      ${whereClause} AND b.client_id IS NOT NULL AND b.status != 'DRAFT'
       GROUP BY c.id, c.client_name
       ORDER BY outstanding DESC
       LIMIT 10`,
       params
     );
 
-    // Get aging analysis
+    // Get aging analysis (exclude DRAFT bills)
     const agingResult = await query(
-      `SELECT 
-        SUM(CASE 
-          WHEN CURRENT_DATE - b.due_date BETWEEN 0 AND 30 
-          THEN b.total_invoice_value - COALESCE(b.total_paid, 0) 
-          ELSE 0 
+      `SELECT
+        SUM(CASE
+          WHEN CURRENT_DATE - b.due_date BETWEEN 0 AND 30
+          THEN b.total_invoice_value - COALESCE(b.total_paid, 0)
+          ELSE 0
         END) as "0-30",
-        SUM(CASE 
-          WHEN CURRENT_DATE - b.due_date BETWEEN 31 AND 60 
-          THEN b.total_invoice_value - COALESCE(b.total_paid, 0) 
-          ELSE 0 
+        SUM(CASE
+          WHEN CURRENT_DATE - b.due_date BETWEEN 31 AND 60
+          THEN b.total_invoice_value - COALESCE(b.total_paid, 0)
+          ELSE 0
         END) as "31-60",
-        SUM(CASE 
-          WHEN CURRENT_DATE - b.due_date BETWEEN 61 AND 90 
-          THEN b.total_invoice_value - COALESCE(b.total_paid, 0) 
-          ELSE 0 
+        SUM(CASE
+          WHEN CURRENT_DATE - b.due_date BETWEEN 61 AND 90
+          THEN b.total_invoice_value - COALESCE(b.total_paid, 0)
+          ELSE 0
         END) as "61-90",
-        SUM(CASE 
-          WHEN CURRENT_DATE - b.due_date > 90 
-          THEN b.total_invoice_value - COALESCE(b.total_paid, 0) 
-          ELSE 0 
+        SUM(CASE
+          WHEN CURRENT_DATE - b.due_date > 90
+          THEN b.total_invoice_value - COALESCE(b.total_paid, 0)
+          ELSE 0
         END) as "90+"
       FROM bills b
-      ${whereClause} AND b.payment_status != 'PAID' AND b.due_date < CURRENT_DATE`,
+      ${whereClause} AND b.payment_status != 'PAID' AND b.status != 'DRAFT' AND b.due_date < CURRENT_DATE`,
       params
     );
 

@@ -1,20 +1,23 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Plus, Save, Eye, AlertTriangle } from 'lucide-react';
+import { Plus, Save, Eye, AlertTriangle, Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { FormSkeleton } from '../components/common/SkeletonLoader';
 import { SuccessCheckmark } from '../components/common/SuccessAnimation';
 import ServiceRow from '../components/forms/ServiceRow';
 import Dropdown from '../components/common/Dropdown';
-import SearchableDropdown from '../components/common/SearchableDropdown'; 
+import SearchableDropdown from '../components/common/SearchableDropdown';
 import Modal from '../components/common/Modal';
 import { billAPI, clientAPI, masterAPI } from '../services/api';
 import { formatCurrency, getFinancialYear, debounce } from '../utils/helpers';
 import DatePicker from 'react-datepicker';
+import { useAuth } from '../context/AuthContext';
+import useEditLock from '../hooks/useEditLock';
 
 const ServicesFormPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [masterDataLoading, setMasterDataLoading] = useState(true);
   const [showClientModal, setShowClientModal] = useState(false);
@@ -22,8 +25,15 @@ const ServicesFormPage = () => {
   const [editMode, setEditMode] = useState(false);
   const [editBillId, setEditBillId] = useState(null);
 
+  // Edit lock — prevents two users editing the same bill simultaneously
+  const { lockStatus, acquireLock, releaseLock } = useEditLock(editBillId, user?.id);
+
   // NEW: Unsaved changes tracking
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  // Default GST rate ID (resolved to the 18% entry after master data loads)
+  const [defaultGstRateId, setDefaultGstRateId] = useState('');
+  const [nextBillNumber, setNextBillNumber] = useState(null);
 
   // Master data
   const [headers, setHeaders] = useState([]);
@@ -81,6 +91,13 @@ const ServicesFormPage = () => {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges]);
 
+  // Acquire edit lock when entering edit mode
+  useEffect(() => {
+    if (editBillId && user?.id) {
+      acquireLock();
+    }
+  }, [editBillId, user?.id]);
+
   // Preview bill number when company or date changes
   useEffect(() => {
     if (formData.header_id && formData.bill_date && !editMode) {
@@ -95,6 +112,7 @@ const ServicesFormPage = () => {
         bill_date: formData.bill_date.toISOString().split('T')[0]
       });
       setBillNumberPreview(response.data.data.next_bill_no);
+      setNextBillNumber(response.data.data.next_number);
     } catch (error) {
       console.error('Failed to preview bill number:', error);
     }
@@ -114,8 +132,21 @@ const ServicesFormPage = () => {
       setHeaders(headersRes.data.data);
       setParticulars(particularsRes.data.data);
       setClients(clientsRes.data.data);
-      setGstRates(gstRes.data.data);
       setPaymentTerms(paymentRes.data.data);
+
+      const gstData = gstRes.data.data;
+      setGstRates(gstData);
+
+      // Find the 18% GST rate and set it as the default for new service rows
+      const rate18 = gstData.find(g => parseFloat(g.rate_percentage) === 18);
+      if (rate18) {
+        const id18 = rate18.id.toString();
+        setDefaultGstRateId(id18);
+        // Also apply to the initial row already on screen (only if not yet set)
+        setServices(prev => prev.map(s =>
+          s.gst_rate_id === '' ? { ...s, gst_rate_id: id18 } : s
+        ));
+      }
     } catch (error) {
       console.error('Failed to load master data:', error);
       toast.error('Failed to load form data');
@@ -182,7 +213,7 @@ const ServicesFormPage = () => {
         service_date: '',
         service_year: new Date().getFullYear().toString(),
         amount: 0,
-        gst_rate_id: '',
+        gst_rate_id: defaultGstRateId,
       },
     ]);
   };
@@ -417,13 +448,15 @@ const ServicesFormPage = () => {
         };
 
         const response = await billAPI.createBill(billData);
-        
-        // NEW: Show animation
+        const createdBill = response.data.data;
+
+        // Show animation, then navigate with the bill's ID (always available,
+        // avoids the extra getBillByNumber lookup that can fail).
         setShowSuccessAnimation(true);
         setTimeout(() => {
-          toast.success(`Bill ${response.data.data.bill_no} created successfully!`);
+          toast.success(`Bill ${createdBill.bill_no || '#' + createdBill.id} created successfully!`);
           setShowSuccessAnimation(false);
-          navigate('/print-bill', { state: { billNo: response.data.data.bill_no } });
+          navigate('/print-bill', { state: { billId: createdBill.id } });
         }, 1000);
       }
     } catch (error) {
@@ -449,7 +482,17 @@ const ServicesFormPage = () => {
 
   return (
     <div className="p-6">
-      <h1 className="text-3xl font-bold text-gray-900 mb-6"> {editMode ? 'Edit Bill (DRAFT)' : 'Services Form'}</h1>
+      <h1 className="text-3xl font-bold text-gray-900 mb-6">{editMode ? 'Edit Bill (DRAFT)' : 'Services Form'}</h1>
+
+      {/* Edit Lock Warning Banner */}
+      {editMode && !lockStatus.canEdit && (
+        <div className="flex items-center space-x-3 bg-red-50 border border-red-300 rounded-lg p-4 mb-4">
+          <Lock className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <p className="text-red-700 text-sm font-medium">
+            This bill is currently being edited by <strong>{lockStatus.lockedByName}</strong>. You are in view-only mode.
+          </p>
+        </div>
+      )}
 
       {masterDataLoading ? (
         <div className="flex items-center justify-center py-12">
@@ -472,14 +515,28 @@ const ServicesFormPage = () => {
                 required
               />
 
-              {/* Bill Number Preview */}
-              {billNumberPreview && !editMode && (
-                <div className="flex items-center space-x-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
-                  <Eye className="w-4 h-4 text-blue-600" />
-                  <div>
-                    <p className="text-xs text-blue-600 font-medium">Next Bill Number</p>
-                    <p className="text-sm font-bold text-blue-900">{billNumberPreview}</p>
+              {/* Bill Number */}
+              {!editMode && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Bill Number
+                  </label>
+                  <div className="px-3 py-2 border border-blue-300 bg-blue-50 rounded-lg text-sm font-bold text-blue-900 min-h-[38px]">
+                    {billNumberPreview || '—'}
                   </div>
+                  {billNumberPreview && nextBillNumber > 1 && (
+                    <p className="text-xs text-gray-400 mt-1">
+                      Last issued:&nbsp;
+                      {(() => {
+                        const parts = billNumberPreview.split('/');
+                        parts[parts.length - 1] = String(nextBillNumber - 1).padStart(3, '0');
+                        return parts.join('/');
+                      })()}
+                    </p>
+                  )}
+                  {billNumberPreview && nextBillNumber === 1 && (
+                    <p className="text-xs text-gray-400 mt-1">First bill this year for this company</p>
+                  )}
                 </div>
               )}
 
@@ -502,7 +559,7 @@ const ServicesFormPage = () => {
 
               {/* Client Name */}
               <SearchableDropdown
-                label="Client Name (Optional)"
+                label="Client Name"
                 value={formData.client_id}
                 onChange={(value) => setFormData({ ...formData, client_id: value })}
                 options={clientOptions}
@@ -631,13 +688,15 @@ const ServicesFormPage = () => {
           <div className="flex justify-end">
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || (editMode && !lockStatus.canEdit)}
               className="flex items-center space-x-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Save className="w-5 h-5" />
               <span>
-                {loading 
+                {loading
                   ? (editMode ? 'Updating Bill...' : 'Creating Bill...')
+                  : (editMode && !lockStatus.canEdit)
+                  ? 'View Only (Locked)'
                   : (editMode ? 'Update Bill' : 'Create Bill')
                 }
               </span>

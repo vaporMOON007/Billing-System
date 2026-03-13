@@ -5,6 +5,7 @@ import { masterAPI, clientAPI } from '../services/api';
 import Modal from '../components/common/Modal';
 import ClientBulkImport from '../components/modals/ClientBulkImport';
 import { useAuth } from '../context/AuthContext';
+import DeleteConfirmModal from '../components/modals/DeleteConfirmModal';
 
 const MastersPage = () => {
   const { user } = useAuth();
@@ -21,6 +22,11 @@ const MastersPage = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [showBulkImport, setShowBulkImport] = useState(false);
+
+  // Delete confirmation modal states
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -69,32 +75,42 @@ const MastersPage = () => {
     setShowModal(true);
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this item?')) return;
+  const handleDelete = (item) => {
+    setItemToDelete(item);
+    setShowDeleteModal(true);
+  };
 
+  const confirmDelete = async () => {
+    if (!itemToDelete) return;
+
+    setDeleting(true);
     try {
       switch (activeTab) {
         case 'company':
-          await masterAPI.deleteHeader(id);
+          await masterAPI.deleteHeader(itemToDelete.id);
           break;
         case 'clients':
-          await clientAPI.deleteClient(id);
+          await clientAPI.deleteClient(itemToDelete.id);
           break;
         case 'particulars':
-          await masterAPI.deleteParticular(id);
+          await masterAPI.deleteParticular(itemToDelete.id);
           break;
         case 'gst':
-          await masterAPI.deleteGSTRate(id);
+          await masterAPI.deleteGSTRate(itemToDelete.id);
           break;
         case 'payment':
-          await masterAPI.deletePaymentTerm(id);
+          await masterAPI.deletePaymentTerm(itemToDelete.id);
           break;
       }
       toast.success('Item deleted successfully');
+      setShowDeleteModal(false);
+      setItemToDelete(null);
       loadData();
     } catch (error) {
       console.error('Failed to delete:', error);
       toast.error('Failed to delete item');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -196,7 +212,7 @@ const MastersPage = () => {
 
   const tabs = [
     { id: 'company', label: 'Company Master', roles: ['CA'] },
-    { id: 'particulars', label: 'Services (Particulars)' },
+    { id: 'particulars', label: 'Services ' },
     { id: 'clients', label: 'Client Master' },
     { id: 'gst', label: 'GST Rates' },
     { id: 'payment', label: 'Payment Terms' },
@@ -221,7 +237,12 @@ const MastersPage = () => {
             className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
           >
             <Plus className="w-4 h-4" />
-            <span>Add New</span>
+            <span>
+              {activeTab === 'company' ? 'Create Company' :
+               activeTab === 'clients' ? 'Create Client' :
+               activeTab === 'particulars' ? 'Create Service' :
+               activeTab === 'gst' ? 'Create GST Rate' : 'Create Payment Term'}
+            </span>
           </button>
         </div>
       </div>
@@ -279,7 +300,7 @@ const MastersPage = () => {
                           <button onClick={() => handleEdit(item)} className="text-primary-600 hover:text-primary-900 mr-4">
                             <Edit2 className="w-4 h-4" />
                           </button>
-                          <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-900">
+                          <button onClick={() => handleDelete(item)} className="text-red-600 hover:text-red-900">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </td>
@@ -316,7 +337,7 @@ const MastersPage = () => {
                           <button onClick={() => handleEdit(item)} className="text-primary-600 hover:text-primary-900 mr-4">
                             <Edit2 className="w-4 h-4" />
                           </button>
-                          <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-900">
+                          <button onClick={() => handleDelete(item)} className="text-red-600 hover:text-red-900">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </td>
@@ -345,7 +366,7 @@ const MastersPage = () => {
                           <button onClick={() => handleEdit(item)} className="text-primary-600 hover:text-primary-900 mr-4">
                             <Edit2 className="w-4 h-4" />
                           </button>
-                          <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-900">
+                          <button onClick={() => handleDelete(item)} className="text-red-600 hover:text-red-900">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </td>
@@ -376,7 +397,7 @@ const MastersPage = () => {
                           <button onClick={() => handleEdit(item)} className="text-primary-600 hover:text-primary-900 mr-4">
                             <Edit2 className="w-4 h-4" />
                           </button>
-                          <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-900">
+                          <button onClick={() => handleDelete(item)} className="text-red-600 hover:text-red-900">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </td>
@@ -407,7 +428,7 @@ const MastersPage = () => {
                           <button onClick={() => handleEdit(item)} className="text-primary-600 hover:text-primary-900 mr-4">
                             <Edit2 className="w-4 h-4" />
                           </button>
-                          <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-900">
+                          <button onClick={() => handleDelete(item)} className="text-red-600 hover:text-red-900">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </td>
@@ -749,7 +770,11 @@ const MastersPage = () => {
               Cancel
             </button>
             <button type="submit" className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
-              {editingItem ? 'Update' : 'Save Client'}
+              {editingItem ? 'Update' : 
+               activeTab === 'company' ? 'Save Company' :
+               activeTab === 'clients' ? 'Save Client' :
+               activeTab === 'particulars' ? 'Save Service' :
+               activeTab === 'gst' ? 'Save GST Rate' : 'Save Payment Term'}
             </button>
           </div>
         </form>
@@ -763,6 +788,32 @@ const MastersPage = () => {
           loadData();
           setShowBulkImport(false);
         }}
+      />
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmModal
+        isOpen={showDeleteModal}
+        onClose={() => {
+          setShowDeleteModal(false);
+          setItemToDelete(null);
+        }}
+        onConfirm={confirmDelete}
+        itemType={
+          activeTab === 'company' ? 'Company' :
+          activeTab === 'clients' ? 'Client' :
+          activeTab === 'particulars' ? 'Service' :
+          activeTab === 'gst' ? 'GST Rate' : 'Payment Term'
+        }
+        itemName={
+          itemToDelete?.company_name || 
+          itemToDelete?.client_name || 
+          itemToDelete?.service_name || 
+          itemToDelete?.description || 
+          itemToDelete?.term_name || 
+          'Unknown'
+        }
+        itemId={itemToDelete?.id}
+        loading={deleting}
       />
     </div>
   );

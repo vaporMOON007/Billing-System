@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CheckCircle, Lock, DollarSign, Trash2, Save } from 'lucide-react';
+import { CheckCircle, Lock, IndianRupee, Trash2, Save } from 'lucide-react';
 
 export const SuccessCheckmark = ({ onComplete }) => {
   useEffect(() => {
@@ -52,7 +52,7 @@ export const PaymentAnimation = ({ amount, onComplete }) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
       <div className="flex flex-col items-center">
-        <DollarSign className="w-20 h-20 text-green-500 animate-coin-bounce" />
+        <IndianRupee className="w-20 h-20 text-green-500 animate-coin-bounce" />
         {showAmount && (
           <p className="mt-4 text-xl font-bold text-green-600 animate-fade-in">
             {amount} Received!

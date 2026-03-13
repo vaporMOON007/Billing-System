@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, DollarSign, Calendar, User } from 'lucide-react';
+import { X, IndianRupee, Calendar, User } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 import api from '../../services/api';
@@ -50,7 +50,7 @@ const PaymentHistoryPopup = ({ isOpen, onClose, billId, billNo, totalAmount }) =
           <div className="flex items-center justify-between p-6 border-b">
             <div className="flex items-center space-x-3">
               <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                <DollarSign className="w-6 h-6 text-blue-600" />
+                <IndianRupee className="w-6 h-6 text-blue-600" />
               </div>
               <div>
                 <h3 className="text-xl font-semibold text-gray-900">Payment History</h3>
@@ -140,7 +140,7 @@ const PaymentHistoryPopup = ({ isOpen, onClose, billId, billNo, totalAmount }) =
                   </div>
                 ) : (
                   <div className="text-center py-8">
-                    <DollarSign className="w-16 h-16 text-gray-300 mx-auto mb-3" />
+                    <IndianRupee className="w-16 h-16 text-gray-300 mx-auto mb-3" />
                     <p className="text-gray-500">No payments recorded yet</p>
                   </div>
                 )}

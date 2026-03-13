@@ -39,7 +39,19 @@ const query = async (text, params) => {
   }
 };
 
+// Verify database connection on startup
+const connectDB = async () => {
+  try {
+    const res = await pool.query('SELECT NOW()');
+    console.log('✅ Database connection verified at:', res.rows[0].now);
+  } catch (error) {
+    console.error('❌ Database connection failed:', error.message);
+    process.exit(1);
+  }
+};
+
 module.exports = {
   pool,
-  query
+  query,
+  connectDB
 };

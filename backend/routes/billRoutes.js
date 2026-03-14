@@ -6,6 +6,9 @@ const { auth } = require('../middleware/auth');
 // All routes require authentication
 router.use(auth);
 
+// Merge / unmerge (must be before /:id routes)
+router.post('/merge', billController.mergeBills);
+
 // Bill CRUD operations
 router.post('/', billController.createBill);
 router.get('/', billController.getAllBills);
@@ -19,6 +22,7 @@ router.delete('/services/:serviceId', billController.deleteService);
 router.get('/:id', billController.getBillById);
 router.put('/:id', billController.updateBill);
 router.put('/:id/finalize', billController.finalizeBill);
+router.post('/:id/unmerge', billController.unmergeBill);
 router.delete('/:id', billController.deleteBill);
 
 // PDF and Email

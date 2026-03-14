@@ -1,4 +1,5 @@
 const { query } = require('../config/database');
+const { logActivity } = require('./activityLogController');
 
 // @desc    Create new bill
 // @route   POST /api/bills
@@ -82,7 +83,11 @@ exports.createBill = async (req, res) => {
     let billData = bill;
     try {
       const refreshResult = await require('../config/database').query(
-        'SELECT * FROM bills WHERE id = $1',
+        `SELECT b.*, h.bill_prefix,
+                COALESCE(b.bill_no, h.bill_prefix || '-DRAFT-' || b.id::text) AS display_ref
+         FROM bills b
+         LEFT JOIN header_master h ON h.id = b.header_id
+         WHERE b.id = $1`,
         [bill.id]
       );
       if (refreshResult.rows.length > 0) {
@@ -91,6 +96,45 @@ exports.createBill = async (req, res) => {
     } catch (refetchError) {
       console.error('Re-fetch after create failed (bill was still saved):', refetchError.message);
     }
+
+    const displayRef = billData.display_ref || billData.bill_no || `DRAFT-${bill.id}`;
+
+    logActivity({
+      performedBy: userId,
+      action: 'CREATE_BILL',
+      entityType: 'BILL',
+      entityId: bill.id,
+      description: `Created bill #${displayRef} (${financial_year})`,
+      metadata: { bill_id: bill.id, bill_no: displayRef, financial_year },
+    });
+
+    // Log each service individually as ADD_SERVICE (fire-and-forget)
+    query(
+      `SELECT bs.id, bs.amount, p.service_name, bs.particulars_other
+       FROM bill_services bs
+       LEFT JOIN particulars_master p ON bs.particulars_id = p.id
+       WHERE bs.bill_id = $1
+       ORDER BY bs.sr_no`,
+      [bill.id]
+    ).then(svcRows => {
+      for (const svc of svcRows.rows) {
+        const name = svc.service_name || svc.particulars_other || 'Service';
+        logActivity({
+          performedBy: userId,
+          action: 'ADD_SERVICE',
+          entityType: 'SERVICE',
+          entityId: svc.id,
+          description: `Added "${name}" — ₹${parseFloat(svc.amount).toFixed(2)}`,
+          metadata: {
+            bill_id:      bill.id,
+            bill_no:      displayRef,
+            service_id:   svc.id,
+            service_name: name,
+            amount:       parseFloat(svc.amount),
+          },
+        });
+      }
+    }).catch(() => {});
 
     res.status(201).json({
       success: true,
@@ -135,6 +179,9 @@ exports.getAllBills = async (req, res) => {
       whereClause += ` AND b.status = $${paramCount}`;
       params.push(status);
       paramCount++;
+    } else {
+      // By default hide ABSORBED bills — they only appear when explicitly filtered
+      whereClause += ` AND b.status != 'ABSORBED'`;
     }
 
     if (payment_status) {
@@ -178,11 +225,14 @@ exports.getAllBills = async (req, res) => {
     params.push(limit, offset);
 
     const result = await query(
-      `SELECT 
+      `SELECT
         b.*,
         h.company_name,
+        h.bill_prefix,
+        COALESCE(b.bill_no, h.bill_prefix || '-DRAFT-' || b.id::text) AS display_ref,
         c.client_name,
-        u.full_name as created_by_name
+        u.full_name as created_by_name,
+        EXISTS (SELECT 1 FROM bill_merges bm WHERE bm.merged_bill_id = b.id) AS is_merged
       FROM bills b
       LEFT JOIN header_master h ON b.header_id = h.id
       LEFT JOIN clients_master c ON b.client_id = c.id
@@ -275,23 +325,41 @@ exports.getBillById = async (req, res) => {
       });
     }
 
-    // Get bill services
-    const servicesResult = await query(
-      `SELECT
-        bs.*,
-        p.service_name,
-        gr.rate_percentage
-      FROM bill_services bs
-      LEFT JOIN particulars_master p ON bs.particulars_id = p.id
-      LEFT JOIN gst_rates_master gr ON bs.gst_rate_id = gr.id
-      WHERE bs.bill_id = $1
-      ORDER BY bs.id`,
-      [id]
-    );
+    // Get services + merge info in parallel
+    const [servicesResult, mergedFromResult, absorbedIntoResult] = await Promise.all([
+      query(
+        `SELECT bs.*, p.service_name, gr.rate_percentage
+         FROM bill_services bs
+         LEFT JOIN particulars_master p ON bs.particulars_id = p.id
+         LEFT JOIN gst_rates_master gr ON bs.gst_rate_id = gr.id
+         WHERE bs.bill_id = $1 ORDER BY bs.id`,
+        [id]
+      ),
+      // If this bill is the RESULT of a merge: which source bills were absorbed?
+      query(
+        `SELECT bm.source_bill_id AS id, sb.bill_no
+         FROM bill_merges bm
+         JOIN bills sb ON sb.id = bm.source_bill_id
+         WHERE bm.merged_bill_id = $1`,
+        [id]
+      ),
+      // If this bill was ABSORBED: which merged bill does it belong to?
+      query(
+        `SELECT bm.merged_bill_id AS id, mb.bill_no
+         FROM bill_merges bm
+         JOIN bills mb ON mb.id = bm.merged_bill_id
+         WHERE bm.source_bill_id = $1`,
+        [id]
+      ),
+    ]);
 
     const bill = {
       ...billResult.rows[0],
-      services: servicesResult.rows
+      display_ref: billResult.rows[0].bill_no
+        || `${billResult.rows[0].bill_prefix || 'DRAFT'}-DRAFT-${billResult.rows[0].id}`,
+      services:       servicesResult.rows,
+      merged_from:    mergedFromResult.rows.length    > 0 ? mergedFromResult.rows    : null,
+      absorbed_into:  absorbedIntoResult.rows.length  > 0 ? absorbedIntoResult.rows[0] : null,
     };
 
     res.json({
@@ -435,7 +503,19 @@ exports.updateBill = async (req, res) => {
     }
 
     // Replace services if new list provided
+    let oldServicesForLog = [];
     if (services && services.length > 0) {
+      // Capture existing services BEFORE deleting — needed for DELETE_SERVICE audit rows
+      const oldSvcResult = await client.query(
+        `SELECT bs.id, bs.particulars_id, bs.amount, p.service_name, bs.particulars_other
+         FROM bill_services bs
+         LEFT JOIN particulars_master p ON bs.particulars_id = p.id
+         WHERE bs.bill_id = $1
+         ORDER BY bs.sr_no`,
+        [id]
+      );
+      oldServicesForLog = oldSvcResult.rows;
+
       await client.query('DELETE FROM bill_services WHERE bill_id = $1', [id]);
 
       for (let i = 0; i < services.length; i++) {
@@ -443,7 +523,7 @@ exports.updateBill = async (req, res) => {
         await client.query(
           `INSERT INTO bill_services
            (bill_id, sr_no, particulars_id, particulars_other, service_date, service_year, amount, gst_rate_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+           VALUES ($1, $2, $3, $4, $5, $6, ROUND($7::numeric, 2), $8)`,
           [
             id,
             i + 1,
@@ -460,11 +540,15 @@ exports.updateBill = async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Re-fetch with DB-computed total_invoice_value — fall back to basic row if re-fetch fails
+    // Re-fetch with DB-computed total_invoice_value + display_ref
     let updatedBillData = billResult.rows[0];
     try {
       const refreshResult = await require('../config/database').query(
-        'SELECT * FROM bills WHERE id = $1',
+        `SELECT b.*, h.bill_prefix,
+                COALESCE(b.bill_no, h.bill_prefix || '-DRAFT-' || b.id::text) AS display_ref
+         FROM bills b
+         LEFT JOIN header_master h ON h.id = b.header_id
+         WHERE b.id = $1`,
         [id]
       );
       if (refreshResult.rows.length > 0) {
@@ -472,6 +556,80 @@ exports.updateBill = async (req, res) => {
       }
     } catch (refetchError) {
       console.error('Re-fetch after update failed (bill was still saved):', refetchError.message);
+    }
+
+    const updatedDisplayRef = updatedBillData.display_ref || updatedBillData.bill_no || `DRAFT-${id}`;
+
+    logActivity({
+      performedBy: req.user.id,
+      action: 'UPDATE_BILL',
+      entityType: 'BILL',
+      entityId: parseInt(id),
+      description: `Updated bill #${updatedDisplayRef}`,
+      metadata: { bill_id: parseInt(id), bill_no: updatedDisplayRef },
+    });
+
+    // If services were replaced, diff old vs new and only log genuine adds/removals
+    if (services && services.length > 0) {
+      const billNo = updatedDisplayRef;
+      const billId = parseInt(id);
+
+      // Fire-and-forget: fetch freshly-inserted services (with real IDs + names), then diff
+      query(
+        `SELECT bs.id, bs.amount, bs.particulars_id, p.service_name, bs.particulars_other
+         FROM bill_services bs
+         LEFT JOIN particulars_master p ON bs.particulars_id = p.id
+         WHERE bs.bill_id = $1
+         ORDER BY bs.sr_no`,
+        [billId]
+      ).then(newSvcRows => {
+        const newSvcs = newSvcRows.rows;
+
+        // Greedy match: for each new service, find one matching old service (same particulars + same rounded amount)
+        // Anything unmatched in old = deleted; anything unmatched in new = added
+        const oldPool = oldServicesForLog.map(s => ({
+          ...s,
+          _amt: parseFloat(parseFloat(s.amount).toFixed(2)),
+          _matched: false,
+        }));
+
+        const genuinelyAdded = [];
+        for (const ns of newSvcs) {
+          const nsAmt = parseFloat(parseFloat(ns.amount).toFixed(2));
+          const matchIdx = oldPool.findIndex(
+            o => !o._matched && o.particulars_id === ns.particulars_id && o._amt === nsAmt
+          );
+          if (matchIdx !== -1) {
+            oldPool[matchIdx]._matched = true; // unchanged — skip
+          } else {
+            genuinelyAdded.push(ns);
+          }
+        }
+        const genuinelyDeleted = oldPool.filter(o => !o._matched);
+
+        for (const svc of genuinelyDeleted) {
+          const name = svc.service_name || svc.particulars_other || 'Service';
+          logActivity({
+            performedBy: req.user.id,
+            action: 'DELETE_SERVICE',
+            entityType: 'SERVICE',
+            entityId: svc.id,
+            description: `Removed "${name}" — ₹${parseFloat(svc.amount).toFixed(2)}`,
+            metadata: { bill_id: billId, bill_no: billNo, service_id: svc.id, service_name: name, amount: parseFloat(svc.amount) },
+          });
+        }
+        for (const svc of genuinelyAdded) {
+          const name = svc.service_name || svc.particulars_other || 'Service';
+          logActivity({
+            performedBy: req.user.id,
+            action: 'ADD_SERVICE',
+            entityType: 'SERVICE',
+            entityId: svc.id,
+            description: `Added "${name}" — ₹${parseFloat(svc.amount).toFixed(2)}`,
+            metadata: { bill_id: billId, bill_no: billNo, service_id: svc.id, service_name: name, amount: parseFloat(svc.amount) },
+          });
+        }
+      }).catch(() => {});
     }
 
     res.json({
@@ -515,10 +673,20 @@ exports.finalizeBill = async (req, res) => {
       });
     }
 
+    const finalized = result.rows[0];
+    logActivity({
+      performedBy: req.user.id,
+      action: 'FINALIZE_BILL',
+      entityType: 'BILL',
+      entityId: parseInt(id),
+      description: `Total ₹${parseFloat(finalized.total_invoice_value || 0).toFixed(2)}`,
+      metadata: { bill_id: parseInt(id), bill_no: finalized.bill_no, total_invoice_value: finalized.total_invoice_value },
+    });
+
     res.json({
       success: true,
       message: 'Bill finalized successfully',
-      data: result.rows[0]
+      data: finalized
     });
   } catch (error) {
     console.error('Finalize bill error:', error);
@@ -596,6 +764,16 @@ exports.deleteBill = async (req, res) => {
     await client.query('DELETE FROM bills WHERE id = $1', [id]);
 
     await client.query('COMMIT');
+
+    const deletedBill = checkResult.rows[0];
+    logActivity({
+      performedBy: req.user.id,
+      action: 'DELETE_BILL',
+      entityType: 'BILL',
+      entityId: parseInt(id),
+      description: `Deleted bill #${deletedBill.bill_no || id}`,
+      metadata: { bill_id: parseInt(id), bill_no: deletedBill.bill_no },
+    });
 
     res.json({
       success: true,
@@ -1052,7 +1230,37 @@ exports.addServiceToBill = async (req, res) => {
     );
 
     await client.query('COMMIT');
-    res.status(201).json({ success: true, message: 'Service added successfully', data: serviceResult.rows[0] });
+
+    // Look up service name + bill display_ref for the audit log (fire-and-forget)
+    const addedService = serviceResult.rows[0];
+    query(
+      `SELECT COALESCE(b.bill_no, h.bill_prefix || '-DRAFT-' || b.id::text) AS display_ref,
+              p.service_name
+       FROM bills b
+       LEFT JOIN header_master h ON h.id = b.header_id
+       LEFT JOIN particulars_master p ON p.id = $2
+       WHERE b.id = $1`,
+      [billId, particulars_id]
+    ).then(infoResult => {
+      const info = infoResult.rows[0] || {};
+      const serviceName = info.service_name || particulars_other || 'Service';
+      logActivity({
+        performedBy: req.user.id,
+        action: 'ADD_SERVICE',
+        entityType: 'SERVICE',
+        entityId: addedService.id,
+        description: `Added service "${serviceName}" — ₹${parseFloat(amount).toFixed(2)}`,
+        metadata: {
+          bill_id:      parseInt(billId),
+          bill_no:      info.display_ref || null,
+          service_id:   addedService.id,
+          service_name: serviceName,
+          amount:       parseFloat(amount),
+        },
+      });
+    }).catch(() => {});
+
+    res.status(201).json({ success: true, message: 'Service added successfully', data: addedService });
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Add service error:', error);
@@ -1095,11 +1303,42 @@ exports.deleteService = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Cannot delete the last service. A bill must have at least one service.' });
     }
 
+    // Capture service details + display_ref BEFORE deleting (for audit log)
+    const serviceDetailResult = await client.query(
+      `SELECT bs.amount, bs.particulars_other,
+              COALESCE(b.bill_no, h.bill_prefix || '-DRAFT-' || b.id::text) AS display_ref,
+              p.service_name
+       FROM bill_services bs
+       JOIN bills b ON bs.bill_id = b.id
+       LEFT JOIN header_master h ON h.id = b.header_id
+       LEFT JOIN particulars_master p ON bs.particulars_id = p.id
+       WHERE bs.id = $1`,
+      [serviceId]
+    );
+    const serviceDetail = serviceDetailResult.rows[0] || {};
+
     await client.query('DELETE FROM bill_services WHERE id = $1', [serviceId]);
 
     // DB trigger (trigger_update_bill_totals) automatically recalculates bill total
 
     await client.query('COMMIT');
+
+    const deletedServiceName = serviceDetail.service_name || serviceDetail.particulars_other || 'Service';
+    logActivity({
+      performedBy: req.user.id,
+      action: 'DELETE_SERVICE',
+      entityType: 'SERVICE',
+      entityId: parseInt(serviceId),
+      description: `Deleted service "${deletedServiceName}" — ₹${parseFloat(serviceDetail.amount || 0).toFixed(2)}`,
+      metadata: {
+        bill_id:      billId,
+        bill_no:      serviceDetail.display_ref || null,
+        service_id:   parseInt(serviceId),
+        service_name: deletedServiceName,
+        amount:       parseFloat(serviceDetail.amount || 0),
+      },
+    });
+
     res.json({ success: true, message: 'Service deleted successfully' });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -1174,5 +1413,236 @@ exports.previewBillNumber = async (req, res) => {
       message: 'Failed to preview bill number',
       error: error.message
     });
+  }
+};
+
+// ============================================================================
+// MERGE BILLS
+// ============================================================================
+
+// @desc    Merge two or more DRAFT bills from the same company into one new DRAFT
+// @route   POST /api/bills/merge
+// @access  Private (CA only)
+exports.mergeBills = async (req, res) => {
+  const client = await require('../config/database').pool.connect();
+  try {
+    const { bill_ids, notes, override_header_id } = req.body;
+    const userId = req.user.id;
+
+    if (!Array.isArray(bill_ids) || bill_ids.length < 2) {
+      return res.status(400).json({ success: false, message: 'Select at least 2 bills to merge' });
+    }
+
+    await client.query('BEGIN');
+
+    // Fetch all source bills
+    const sourceBillsResult = await client.query(
+      `SELECT b.* FROM bills b WHERE b.id = ANY($1::int[])`,
+      [bill_ids]
+    );
+    const sourceBills = sourceBillsResult.rows;
+
+    if (sourceBills.length !== bill_ids.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'One or more bills not found' });
+    }
+
+    const nonDrafts = sourceBills.filter(b => b.status !== 'DRAFT');
+    if (nonDrafts.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'All selected bills must be DRAFT to merge' });
+    }
+
+    const headerIds  = [...new Set(sourceBills.map(b => b.header_id))];
+    const clientIds2 = [...new Set(sourceBills.map(b => b.client_id).filter(Boolean))];
+
+    if (headerIds.length > 1) {
+      // Different headers allowed only if: same client AND a valid override_header_id supplied
+      if (clientIds2.length !== 1) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ success: false, message: 'Bills belong to different clients and cannot be merged' });
+      }
+      if (!override_header_id) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ success: false, message: 'Bills are from different companies — please specify which company header to use' });
+      }
+      const overrideIdNum = parseInt(override_header_id, 10);
+      if (!headerIds.includes(overrideIdNum)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ success: false, message: 'override_header_id must be one of the headers from the selected bills' });
+      }
+    }
+
+    const fyears = [...new Set(sourceBills.map(b => b.financial_year))];
+    if (fyears.length > 1) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'All selected bills must be from the same financial year' });
+    }
+
+    // Already-absorbed check
+    const alreadyAbsorbed = await client.query(
+      'SELECT source_bill_id FROM bill_merges WHERE source_bill_id = ANY($1::int[])',
+      [bill_ids]
+    );
+    if (alreadyAbsorbed.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'One or more bills have already been merged into another bill' });
+    }
+
+    // Use override header if cross-company merge, otherwise use the common header
+    const headerId       = headerIds.length > 1 ? parseInt(override_header_id, 10) : headerIds[0];
+    const financialYear  = fyears[0];
+    const clientId       = clientIds2.length === 1 ? clientIds2[0] : null;
+    const billDates      = sourceBills.map(b => new Date(b.bill_date));
+    const dueDates       = sourceBills.map(b => new Date(b.due_date));
+    const earliestDate   = new Date(Math.min(...billDates)).toISOString().split('T')[0];
+    const latestDueDate  = new Date(Math.max(...dueDates)).toISOString().split('T')[0];
+
+    // Get payment_term_id — use common one if all match, else fall back to the first bill's term
+    const ptIds   = [...new Set(sourceBills.map(b => b.payment_term_id).filter(Boolean))];
+    const ptId    = ptIds.length >= 1 ? ptIds[0] : sourceBills[0].payment_term_id;
+
+    // Create the merged DRAFT bill — bill_no stays NULL until finalized
+    const mergedBillResult = await client.query(
+      `INSERT INTO bills (header_id, client_id, bill_date, due_date, financial_year, payment_term_id, notes, created_by, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'DRAFT')
+       RETURNING *`,
+      [headerId, clientId, earliestDate, latestDueDate, financialYear, ptId, notes || null, userId]
+    );
+    const mergedBill = mergedBillResult.rows[0];
+
+    // Copy services from ALL source bills in order
+    let srNo = 1;
+    for (const sb of sourceBills) {
+      const svcResult = await client.query(
+        'SELECT * FROM bill_services WHERE bill_id = $1 ORDER BY sr_no',
+        [sb.id]
+      );
+      for (const svc of svcResult.rows) {
+        await client.query(
+          `INSERT INTO bill_services
+           (bill_id, sr_no, particulars_id, particulars_other, service_date, service_year, amount, gst_rate_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [mergedBill.id, srNo++, svc.particulars_id, svc.particulars_other,
+           svc.service_date, svc.service_year, svc.amount, svc.gst_rate_id]
+        );
+      }
+    }
+
+    // Mark source bills as ABSORBED
+    await client.query(
+      `UPDATE bills SET status = 'ABSORBED', updated_at = CURRENT_TIMESTAMP WHERE id = ANY($1::int[])`,
+      [bill_ids]
+    );
+
+    // Create bill_merges records
+    for (const srcId of bill_ids) {
+      await client.query(
+        'INSERT INTO bill_merges (merged_bill_id, source_bill_id, merged_by) VALUES ($1, $2, $3)',
+        [mergedBill.id, srcId, userId]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    // Re-fetch to get DB-computed totals
+    let mergedBillData = mergedBill;
+    try {
+      const refresh = await require('../config/database').query('SELECT * FROM bills WHERE id = $1', [mergedBill.id]);
+      if (refresh.rows.length > 0) mergedBillData = refresh.rows[0];
+    } catch (_) {}
+
+    // Log source bill_nos for context
+    const sourceBillNos = sourceBills.map(b => b.bill_no).filter(Boolean);
+    logActivity({
+      performedBy: userId,
+      action: 'MERGE_BILLS',
+      entityType: 'BILL',
+      entityId: mergedBill.id,
+      description: `Merged ${bill_ids.length} bills${sourceBillNos.length ? ' (' + sourceBillNos.join(', ') + ')' : ''} into new draft`,
+      metadata: { merged_bill_id: mergedBill.id, source_bill_ids: bill_ids, source_bill_nos: sourceBillNos },
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `${bill_ids.length} bills merged successfully`,
+      data: mergedBillData
+    });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Merge bills error:', error);
+    res.status(500).json({ success: false, message: 'Failed to merge bills', error: error.message });
+  } finally {
+    client.release();
+  }
+};
+
+// @desc    Unmerge a DRAFT merged bill — restores all source bills to DRAFT
+// @route   POST /api/bills/:id/unmerge
+// @access  Private (CA only)
+exports.unmergeBill = async (req, res) => {
+  const client = await require('../config/database').pool.connect();
+  try {
+    const { id } = req.params;
+    const userId  = req.user.id;
+
+    await client.query('BEGIN');
+
+    // Check the bill exists and is DRAFT
+    const billResult = await client.query('SELECT * FROM bills WHERE id = $1', [id]);
+    if (billResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Bill not found' });
+    }
+    const mergedBill = billResult.rows[0];
+    if (mergedBill.status !== 'DRAFT') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'Only DRAFT merged bills can be unmerged' });
+    }
+
+    // Get all source bills from merge records
+    const mergeRecords = await client.query(
+      'SELECT source_bill_id FROM bill_merges WHERE merged_bill_id = $1',
+      [id]
+    );
+    if (mergeRecords.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'This bill was not created by a merge' });
+    }
+    const sourceBillIds = mergeRecords.rows.map(r => r.source_bill_id);
+
+    // Restore source bills to DRAFT
+    await client.query(
+      `UPDATE bills SET status = 'DRAFT', updated_at = CURRENT_TIMESTAMP WHERE id = ANY($1::int[])`,
+      [sourceBillIds]
+    );
+
+    // Delete the merged bill's services + the bill itself
+    // (bill_merges rows cascade-delete when merged_bill is deleted)
+    await client.query('DELETE FROM bill_services WHERE bill_id = $1', [id]);
+    await client.query('DELETE FROM bills WHERE id = $1', [id]);
+
+    await client.query('COMMIT');
+
+    logActivity({
+      performedBy: userId,
+      action: 'UNMERGE_BILL',
+      entityType: 'BILL',
+      entityId: parseInt(id),
+      description: `Unmerged bill — restored ${sourceBillIds.length} bills to Draft`,
+      metadata: { merged_bill_id: parseInt(id), source_bill_ids: sourceBillIds },
+    });
+
+    res.json({
+      success: true,
+      message: `Bill unmerged — ${sourceBillIds.length} source bill(s) restored to Draft`,
+      data: { restored_bill_ids: sourceBillIds }
+    });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Unmerge bill error:', error);
+    res.status(500).json({ success: false, message: 'Failed to unmerge bill', error: error.message });
+  } finally {
+    client.release();
   }
 };

@@ -16,7 +16,8 @@ const billRoutes = require('./routes/billRoutes');
 const clientRoutes = require('./routes/clientRoutes');
 const masterRoutes = require('./routes/masterRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
-const reportRoutes = require('./routes/reportRoutes');
+const reportRoutes       = require('./routes/reportRoutes');
+const activityLogRoutes  = require('./routes/activityLogRoutes');
 
 // Connect to database
 connectDB();
@@ -36,7 +37,8 @@ app.use('/api/bills', billRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/masters', masterRoutes);
 app.use('/api/payments', paymentRoutes);
-app.use('/api/reports', reportRoutes);
+app.use('/api/reports',    reportRoutes);
+app.use('/api/audit-log', activityLogRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

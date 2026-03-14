@@ -200,7 +200,7 @@ const ServicesFormPage = () => {
         })));
       }
 
-      toast.success('Editing DRAFT bill: ' + bill.bill_no);
+      toast.success('Editing DRAFT bill: ' + (bill.display_ref || bill.bill_no || `DRAFT-${bill.id}`));
     }
   }, [location.state, clients]); 
 
@@ -454,7 +454,7 @@ const ServicesFormPage = () => {
         // avoids the extra getBillByNumber lookup that can fail).
         setShowSuccessAnimation(true);
         setTimeout(() => {
-          toast.success(`Bill ${createdBill.bill_no || '#' + createdBill.id} created successfully!`);
+          toast.success(`Bill ${createdBill.display_ref || createdBill.bill_no || '#' + createdBill.id} created successfully!`);
           setShowSuccessAnimation(false);
           navigate('/print-bill', { state: { billId: createdBill.id } });
         }, 1000);
@@ -521,21 +521,13 @@ const ServicesFormPage = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Bill Number
                   </label>
-                  <div className="px-3 py-2 border border-blue-300 bg-blue-50 rounded-lg text-sm font-bold text-blue-900 min-h-[38px]">
-                    {billNumberPreview || '—'}
+                  <div className="px-3 py-2 border border-amber-300 bg-amber-50 rounded-lg text-sm font-semibold text-amber-800 min-h-[38px]">
+                    Draft — assigned on Finalize
                   </div>
-                  {billNumberPreview && nextBillNumber > 1 && (
+                  {billNumberPreview && (
                     <p className="text-xs text-gray-400 mt-1">
-                      Last issued:&nbsp;
-                      {(() => {
-                        const parts = billNumberPreview.split('/');
-                        parts[parts.length - 1] = String(nextBillNumber - 1).padStart(3, '0');
-                        return parts.join('/');
-                      })()}
+                      Next finalized number will be: {billNumberPreview}
                     </p>
-                  )}
-                  {billNumberPreview && nextBillNumber === 1 && (
-                    <p className="text-xs text-gray-400 mt-1">First bill this year for this company</p>
                   )}
                 </div>
               )}

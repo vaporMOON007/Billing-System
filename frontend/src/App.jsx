@@ -9,8 +9,11 @@ import Dashboard from './pages/Dashboard';
 import ServicesFormPage from './pages/ServicesFormPage';
 import PrintBillPage from './pages/PrintBillPage';
 import MastersPage from './pages/MastersPage';
+import ReportsPage from './pages/ReportsPage';
+import UserManagementPage from './pages/UserManagementPage';
 import Register from './components/auth/Register';
 import ResetPassword from './components/auth/ResetPassword';
+import AuditLogPage from './pages/AuditLogPage';
 
 
 // Protected Route Component
@@ -133,6 +136,36 @@ function App() {
               <ProtectedRoute>
                 <Layout>
                   <MastersPage />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/reports"
+            element={
+              <ProtectedRoute allowedRoles={['CA']}>
+                <Layout>
+                  <ReportsPage />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/user-management"
+            element={
+              <ProtectedRoute allowedRoles={['CA']}>
+                <Layout>
+                  <UserManagementPage />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/audit-log"
+            element={
+              <ProtectedRoute allowedRoles={['CA']}>
+                <Layout>
+                  <AuditLogPage />
                 </Layout>
               </ProtectedRoute>
             }

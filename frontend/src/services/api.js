@@ -78,6 +78,8 @@ export const billAPI = {
   sendEmail: (id, emailData) => api.post(`/bills/${id}/email`, emailData),
   addServiceToBill: (billId, serviceData) => api.post(`/bills/${billId}/services`, serviceData),
   deleteService: (serviceId) => api.delete(`/bills/services/${serviceId}`),
+  mergeBills: (data) => api.post('/bills/merge', data),
+  unmergeBill: (id) => api.post(`/bills/${id}/unmerge`),
   previewBillNumber: (params) => api.get('/bills/preview-number', { params }),
   // Edit lock
   acquireLock: (billId) => api.post(`/bills/${billId}/lock`),
@@ -131,5 +133,31 @@ export const masterAPI = {
 };
 
 
+
+// ============================================================================
+// USER MANAGEMENT ENDPOINTS (CA only)
+// ============================================================================
+export const userAPI = {
+  getAllUsers:       ()           => api.get('/auth/users'),
+  updateUser:        (id, data)   => api.put(`/auth/users/${id}`, data),
+  adminResetPassword:(id, data)   => api.put(`/auth/users/${id}/reset-password`, data),
+  createUser:        (data)       => api.post('/auth/register', data),
+};
+
+// ============================================================================
+// REPORTS ENDPOINTS
+// ============================================================================
+export const reportAPI = {
+  getDashboardKPIs: (params) => api.get('/reports/dashboard-kpis', { params }),
+  getReceivables:   (params) => api.get('/reports/receivables',    { params }),
+};
+
+// ============================================================================
+// AUDIT LOG ENDPOINTS (CA only)
+// ============================================================================
+export const activityLogAPI = {
+  getActivityLog:        (params) => api.get('/audit-log',         { params }),
+  getActivityLogByBill:  (params) => api.get('/audit-log/by-bill', { params }),
+};
 
 export default api;

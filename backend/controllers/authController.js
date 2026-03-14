@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { query } = require('../config/database');
 const crypto = require('crypto');
+const { logActivity } = require('./activityLogController');
 
 // @desc    Login user
 // @route   POST /api/auth/login
@@ -210,6 +211,16 @@ exports.register = async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    // Log with best-effort: performedBy is the requesting user (if authenticated) or null (self-register)
+    logActivity({
+      performedBy: req.user?.id || null,
+      action: 'CREATE_USER',
+      entityType: 'USER',
+      entityId: user.id,
+      description: `Created user "${user.username}" with role ${user.role}`,
+      metadata: { new_user_id: user.id, username: user.username, role: user.role },
+    });
+
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
@@ -339,5 +350,109 @@ exports.resetPassword = async (req, res) => {
       message: 'Password reset failed',
       error: error.message
     });
+  }
+};
+// ============================================================================
+// USER MANAGEMENT (CA only)
+// ============================================================================
+
+// @desc    Get all users
+// @route   GET /api/auth/users
+// @access  Private (CA only)
+exports.getAllUsers = async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT id, username, email, full_name, phone, role, is_active, created_at
+       FROM users
+       ORDER BY created_at ASC`
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Get all users error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch users', error: error.message });
+  }
+};
+
+// @desc    Update user (role, name, email, phone, active status)
+// @route   PUT /api/auth/users/:id
+// @access  Private (CA only)
+exports.updateUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { full_name, email, phone, role, is_active } = req.body;
+
+    if (parseInt(id) === req.user.id && is_active === false) {
+      return res.status(400).json({ success: false, message: 'You cannot deactivate your own account.' });
+    }
+
+    const result = await query(
+      `UPDATE users
+       SET full_name  = COALESCE($1, full_name),
+           email      = COALESCE($2, email),
+           phone      = COALESCE($3, phone),
+           role       = COALESCE($4, role),
+           is_active  = COALESCE($5, is_active),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $6
+       RETURNING id, username, email, full_name, phone, role, is_active`,
+      [full_name, email, phone, role, is_active, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const updatedUser = result.rows[0];
+    logActivity({
+      performedBy: req.user.id,
+      action: 'UPDATE_USER',
+      entityType: 'USER',
+      entityId: updatedUser.id,
+      description: `Updated user "${updatedUser.username}" (${updatedUser.role})`,
+      metadata: { target_user_id: updatedUser.id, username: updatedUser.username },
+    });
+    res.json({ success: true, message: 'User updated successfully', data: updatedUser });
+  } catch (error) {
+    console.error('Update user error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update user', error: error.message });
+  }
+};
+
+// @desc    Admin reset password (CA resets any user's password)
+// @route   PUT /api/auth/users/:id/reset-password
+// @access  Private (CA only)
+exports.adminResetPassword = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { newPassword } = req.body;
+
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(newPassword, salt);
+
+    const result = await query(
+      'UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id',
+      [passwordHash, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    logActivity({
+      performedBy: req.user.id,
+      action: 'RESET_PASSWORD',
+      entityType: 'USER',
+      entityId: parseInt(id),
+      description: `Admin reset password for user id ${id}`,
+      metadata: { target_user_id: parseInt(id) },
+    });
+    res.json({ success: true, message: 'Password reset successfully' });
+  } catch (error) {
+    console.error('Admin reset password error:', error);
+    res.status(500).json({ success: false, message: 'Failed to reset password', error: error.message });
   }
 };

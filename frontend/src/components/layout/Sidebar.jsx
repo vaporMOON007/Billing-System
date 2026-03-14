@@ -1,24 +1,28 @@
 import { NavLink } from 'react-router-dom';
-import { FileText, Printer, Settings, LayoutDashboard } from 'lucide-react';
+import { LayoutDashboard, BarChart2, FilePlus, Printer, Settings, Users, ClipboardList } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 const Sidebar = () => {
   const { user } = useAuth();
+
+  // Order: Dashboard → Reports → Create Bill → Print Bill → Masters → User Management
   const navItems = [
-    { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['CA'] },
-    { path: '/services-form', icon: FileText, label: 'Services Form', roles: ['CA', 'EMPLOYEE'] },
-    { path: '/print-bill', icon: Printer, label: 'Print Bill', roles: ['CA', 'EMPLOYEE'] },
-    { path: '/masters', icon: Settings, label: 'Masters', roles: ['CA', 'EMPLOYEE'] },
+    { path: '/dashboard',       icon: LayoutDashboard, label: 'Dashboard',       roles: ['CA'] },
+    { path: '/reports',         icon: BarChart2,        label: 'Reports',         roles: ['CA'] },
+    { path: '/services-form',   icon: FilePlus,         label: 'Create Bill',     roles: ['CA', 'EMPLOYEE'] },
+    { path: '/print-bill',      icon: Printer,          label: 'Print Bill',      roles: ['CA', 'EMPLOYEE'] },
+    { path: '/masters',         icon: Settings,         label: 'Masters',         roles: ['CA', 'EMPLOYEE'] },
+    { path: '/user-management', icon: Users,          label: 'User Management', roles: ['CA'] },
+    { path: '/audit-log',       icon: ClipboardList,  label: 'Audit Log',       roles: ['CA'] },
   ];
 
-  // Filter nav items based on user role
-  const filteredNavItems = navItems.filter(item => 
+  const filteredNavItems = navItems.filter(item =>
     !item.roles || item.roles.includes(user?.role)
   );
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 min-h-screen">
-      <nav className="p-4 space-y-2">
+      <nav className="p-4 space-y-1">
         {filteredNavItems.map((item) => (
           <NavLink
             key={item.path}

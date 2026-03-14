@@ -9,6 +9,7 @@ router.use(authorize('CA'));
 
 // Dashboard & Reports
 router.get('/dashboard-kpis', reportController.getDashboardKPIs);
+router.get('/receivables', reportController.getReceivables);
 router.get('/client-ledger', reportController.generateClientLedger);
 router.get('/client-detailed', reportController.generateDetailedReport);
 router.get('/export-bills', reportController.exportBills);

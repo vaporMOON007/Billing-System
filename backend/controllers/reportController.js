@@ -492,3 +492,123 @@ exports.exportBills = async (req, res) => {
     });
   }
 };
+// @desc    Get full receivables — all companies + all clients (no limit) + monthly summary
+// @route   GET /api/reports/receivables
+// @access  Private (CA only)
+exports.getReceivables = async (req, res) => {
+  try {
+    const { financial_year, date_from, date_to } = req.query;
+
+    let whereClause = "WHERE b.status = 'FINALIZED'";
+    const params = [];
+    let paramCount = 1;
+
+    if (financial_year) {
+      whereClause += ` AND b.financial_year = $${paramCount}`;
+      params.push(financial_year);
+      paramCount++;
+    }
+    if (date_from) {
+      whereClause += ` AND b.bill_date >= $${paramCount}`;
+      params.push(date_from);
+      paramCount++;
+    }
+    if (date_to) {
+      whereClause += ` AND b.bill_date <= $${paramCount}`;
+      params.push(date_to);
+      paramCount++;
+    }
+
+    // Summary totals
+    const summaryResult = await query(
+      `SELECT
+        COUNT(*)                                                          AS total_bills,
+        COALESCE(SUM(b.total_invoice_value), 0)                         AS total_billed,
+        COALESCE(SUM(b.total_paid), 0)                                   AS total_collected,
+        COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid,0)),0) AS total_outstanding
+       FROM bills b ${whereClause}`,
+      params
+    );
+
+    // Company-wise (all, no limit)
+    const companyResult = await query(
+      `SELECT
+        h.id                                                              AS header_id,
+        h.company_name,
+        COUNT(b.id)                                                       AS bill_count,
+        COALESCE(SUM(b.total_invoice_value), 0)                         AS total_billed,
+        COALESCE(SUM(b.total_paid), 0)                                   AS total_collected,
+        COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid,0)),0) AS outstanding,
+        COUNT(CASE WHEN b.payment_status = 'UNPAID'  THEN 1 END)        AS unpaid_count,
+        COUNT(CASE WHEN b.payment_status = 'PARTIAL' THEN 1 END)        AS partial_count,
+        COUNT(CASE WHEN b.payment_status = 'PAID'    THEN 1 END)        AS paid_count
+       FROM bills b
+       LEFT JOIN header_master h ON b.header_id = h.id
+       ${whereClause}
+       GROUP BY h.id, h.company_name
+       ORDER BY outstanding DESC`,
+      params
+    );
+
+    // Client-wise (all, no limit)
+    const clientResult = await query(
+      `SELECT
+        c.id                                                              AS client_id,
+        c.client_name,
+        COUNT(b.id)                                                       AS bill_count,
+        COALESCE(SUM(b.total_invoice_value), 0)                         AS total_billed,
+        COALESCE(SUM(b.total_paid), 0)                                   AS total_collected,
+        COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid,0)),0) AS outstanding,
+        COUNT(CASE WHEN b.payment_status = 'UNPAID'  THEN 1 END)        AS unpaid_count,
+        COUNT(CASE WHEN b.payment_status = 'PARTIAL' THEN 1 END)        AS partial_count,
+        COUNT(CASE WHEN b.payment_status = 'PAID'    THEN 1 END)        AS paid_count
+       FROM bills b
+       LEFT JOIN clients_master c ON b.client_id = c.id
+       ${whereClause}
+       GROUP BY c.id, c.client_name
+       ORDER BY outstanding DESC`,
+      params
+    );
+
+    // Aging buckets (outstanding only)
+    const agingResult = await query(
+      `SELECT
+        COALESCE(SUM(CASE WHEN CURRENT_DATE - b.due_date BETWEEN 0  AND 30  THEN b.total_invoice_value - COALESCE(b.total_paid,0) ELSE 0 END),0) AS "0_30",
+        COALESCE(SUM(CASE WHEN CURRENT_DATE - b.due_date BETWEEN 31 AND 60  THEN b.total_invoice_value - COALESCE(b.total_paid,0) ELSE 0 END),0) AS "31_60",
+        COALESCE(SUM(CASE WHEN CURRENT_DATE - b.due_date BETWEEN 61 AND 90  THEN b.total_invoice_value - COALESCE(b.total_paid,0) ELSE 0 END),0) AS "61_90",
+        COALESCE(SUM(CASE WHEN CURRENT_DATE - b.due_date > 90               THEN b.total_invoice_value - COALESCE(b.total_paid,0) ELSE 0 END),0) AS "90_plus"
+       FROM bills b
+       ${whereClause} AND b.payment_status != 'PAID' AND b.due_date IS NOT NULL`,
+      params
+    );
+
+    // Monthly collection summary (last 12 months)
+    const monthlyResult = await query(
+      `SELECT
+        TO_CHAR(b.bill_date, 'Mon YYYY')                                 AS month_label,
+        TO_CHAR(b.bill_date, 'YYYY-MM')                                  AS month_sort,
+        COALESCE(SUM(b.total_invoice_value), 0)                         AS billed,
+        COALESCE(SUM(b.total_paid), 0)                                   AS collected,
+        COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid,0)),0) AS outstanding
+       FROM bills b
+       WHERE b.status = 'FINALIZED'
+         AND b.bill_date >= CURRENT_DATE - INTERVAL '12 months'
+       GROUP BY month_label, month_sort
+       ORDER BY month_sort ASC`
+    );
+
+    res.json({
+      success: true,
+      data: {
+        summary:  summaryResult.rows[0],
+        by_company: companyResult.rows,
+        by_client:  clientResult.rows,
+        aging:      agingResult.rows[0],
+        monthly:    monthlyResult.rows
+      }
+    });
+  } catch (error) {
+    console.error('Get receivables error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch receivables', error: error.message });
+  }
+};

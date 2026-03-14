@@ -1,4 +1,5 @@
 const { query } = require('../config/database');
+const { logActivity } = require('./activityLogController');
 
 // @desc    Mark payment for a bill
 // @route   POST /api/payments
@@ -78,11 +79,22 @@ exports.markPayment = async (req, res) => {
       [bill_id]
     );
 
+    const payment    = paymentResult.rows[0];
+    const billNo     = updatedBill.rows[0]?.bill_no || null;
+    logActivity({
+      performedBy: req.user.id,
+      action: 'MARK_PAYMENT',
+      entityType: 'PAYMENT',
+      entityId: payment.id,
+      description: `Payment received — ₹${parseFloat(amount_paid).toFixed(2)}`,
+      metadata: { payment_id: payment.id, bill_id, bill_no: billNo, amount_paid: parseFloat(amount_paid), payment_date },
+    });
+
     res.status(201).json({
       success: true,
       message: 'Payment recorded successfully',
       data: {
-        payment: paymentResult.rows[0],
+        payment,
         bill: updatedBill.rows[0]
       }
     });

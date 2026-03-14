@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import QRCode from 'qrcode.react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Search, Download, Mail, MessageSquare, Printer, Eye, ChevronLeft, ChevronRight, Edit, IndianRupee, Info, AlertTriangle, AlertCircle, Trash2 } from 'lucide-react';
+import { Search, Download, Mail, MessageSquare, Printer, Eye, ChevronLeft, ChevronRight, Edit, IndianRupee, Info, AlertTriangle, AlertCircle, Trash2, GitMerge, GitBranch, X } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { billAPI, paymentAPI } from '../services/api';
+import { billAPI, paymentAPI, masterAPI } from '../services/api';
 import { formatCurrency, formatDate } from '../utils/helpers';
 import { useAuth } from '../context/AuthContext';
 import MarkPaymentModal from '../components/modals/MarkPaymentModal';
@@ -36,16 +36,19 @@ const PrintBillPage = () => {
   const [totalBills, setTotalBills] = useState(0);
   const billsPerPage = 25;
   
-  // Filters
-  const [filters, setFilters] = useState({
-    status: '',
-    payment_status: '',
-    searchTerm: '',
-    date_from: '',
-    date_to: '',
-    header_id: '',
-    client_id: '',
-    created_by: ''
+  // Filters — pre-populate from Reports page navigation if provided
+  const [filters, setFilters] = useState(() => {
+    const incoming = location.state?.filter || {};
+    return {
+      status:         incoming.status         || '',
+      payment_status: incoming.payment_status || '',
+      searchTerm:     '',
+      date_from:      incoming.date_from      || '',
+      date_to:        incoming.date_to        || '',
+      header_id:      incoming.header_id      || '',
+      client_id:      incoming.client_id      || '',
+      created_by:     ''
+    };
   });
   
   // Modals
@@ -68,6 +71,22 @@ const PrintBillPage = () => {
   const [showQuickFinalizeModal, setShowQuickFinalizeModal] = useState(false);
   const [billToFinalize, setBillToFinalize] = useState(null);
   const [quickFinalizing, setQuickFinalizing] = useState(false);
+
+  // Merge mode
+  const [mergeMode, setMergeMode] = useState(false);
+  const [selectedForMerge, setSelectedForMerge] = useState([]); // array of bill ids
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const [mergeNotes, setMergeNotes] = useState('');
+  const [merging, setMerging] = useState(false);
+  const [headers, setHeaders] = useState([]);
+  // Cross-company merge: header picker
+  const [showHeaderPickModal, setShowHeaderPickModal] = useState(false);
+  const [pickedHeaderId, setPickedHeaderId] = useState(null);
+
+  // Unmerge
+  const [showUnmergeModal, setShowUnmergeModal] = useState(false);
+  const [billToUnmerge, setBillToUnmerge] = useState(null);
+  const [unmerging, setUnmerging] = useState(false);
  
   // NEW: Animation states
   const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
@@ -80,14 +99,18 @@ const PrintBillPage = () => {
   const [previewBill, setPreviewBill] = useState(null);
 
   useEffect(() => {
+    masterAPI.getAllHeaders().then(r => setHeaders(r.data.data || [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     if (location.state?.billId) {
       // Navigate came from bill creation — load the specific bill directly by ID
-      // (single API call, no extra getBillByNumber lookup that can fail)
       handleLoadBillById(location.state.billId);
     } else if (location.state?.billNo) {
-      // Legacy: navigate with billNo — keep working but also load the list
+      // Legacy: navigate with billNo
       handleSearchByNumber(location.state.billNo);
     } else {
+      // Normal load (also handles navigation from Reports with pre-set filters)
       loadBills();
     }
   }, [currentPage, filters]);
@@ -172,6 +195,7 @@ const PrintBillPage = () => {
   const handleBackToList = () => {
     setView('list');
     setSelectedBill(null);
+    loadBills();
   };
 
   const handlePrint = () => {
@@ -377,12 +401,100 @@ const PrintBillPage = () => {
     }
   };
 
+  // ── Merge helpers ────────────────────────────────────────────────────────
+  const toggleMergeMode = () => {
+    setMergeMode(v => !v);
+    setSelectedForMerge([]);
+  };
+
+  const toggleSelectForMerge = (bill) => {
+    setSelectedForMerge(prev =>
+      prev.includes(bill.id) ? prev.filter(id => id !== bill.id) : [...prev, bill.id]
+    );
+  };
+
+  // All selected bills must be DRAFT — validate live
+  const selectedBillObjects = bills.filter(b => selectedForMerge.includes(b.id));
+  const mergeHeaderIds  = [...new Set(selectedBillObjects.map(b => b.header_id))];
+  const mergeClientIds  = [...new Set(selectedBillObjects.map(b => b.client_id).filter(Boolean))];
+  const sameHeader      = mergeHeaderIds.length === 1;
+  const sameClient      = mergeClientIds.length === 1;
+  // Valid = 2+ bills AND (same header OR same client with override)
+  const crossCompany    = selectedForMerge.length >= 2 && !sameHeader && sameClient;
+  const mergeValid      = selectedForMerge.length >= 2 && (sameHeader || sameClient);
+  // Unique headers involved (for the picker modal)
+  const mergeHeaderOptions = mergeHeaderIds.map(hid => ({
+    id: hid,
+    name: headers.find(h => h.id === hid)?.company_name
+       || selectedBillObjects.find(b => b.header_id === hid)?.company_name
+       || `Header #${hid}`,
+  }));
+  const mergeCompanyName = sameHeader
+    ? (headers.find(h => h.id === mergeHeaderIds[0])?.company_name || selectedBillObjects[0]?.company_name || '')
+    : '';
+
+  const handleConfirmMerge = async () => {
+    setMerging(true);
+    try {
+      const payload = { bill_ids: selectedForMerge, notes: mergeNotes || null };
+      if (crossCompany && pickedHeaderId) payload.override_header_id = pickedHeaderId;
+      const res = await billAPI.mergeBills(payload);
+      toast.success(res.data.message);
+      setShowMergeModal(false);
+      setMergeMode(false);
+      setSelectedForMerge([]);
+      setMergeNotes('');
+      setPickedHeaderId(null);
+      loadBills();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to merge bills');
+    } finally {
+      setMerging(false);
+    }
+  };
+
+  // Opens the header picker first (cross-company), then merge modal after pick
+  const handleMergeButtonClick = () => {
+    if (crossCompany) {
+      setPickedHeaderId(null);
+      setShowHeaderPickModal(true);
+    } else {
+      setShowMergeModal(true);
+    }
+  };
+
+  const handleHeaderPickConfirm = () => {
+    if (!pickedHeaderId) return;
+    setShowHeaderPickModal(false);
+    setShowMergeModal(true);
+  };
+
+  const handleUnmerge = (bill) => {
+    setBillToUnmerge(bill);
+    setShowUnmergeModal(true);
+  };
+
+  const confirmUnmerge = async () => {
+    setUnmerging(true);
+    try {
+      const res = await billAPI.unmergeBill(billToUnmerge.id);
+      toast.success(res.data.message);
+      setShowUnmergeModal(false);
+      setBillToUnmerge(null);
+      if (view === 'preview') { setView('list'); setSelectedBill(null); }
+      loadBills();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to unmerge');
+    } finally {
+      setUnmerging(false);
+    }
+  };
+
   const statusOptions = [
     { value: '', label: 'All Status' },
     { value: 'DRAFT', label: 'Draft' },
     { value: 'FINALIZED', label: 'Finalized' },
-    { value: 'SENT', label: 'Sent' },
-    { value: 'PAID', label: 'Paid' },
+    { value: 'ABSORBED', label: 'Absorbed (merged)' },
   ];
 
   return (
@@ -391,7 +503,21 @@ const PrintBillPage = () => {
         <h1 className="text-3xl font-bold text-gray-900">
           {view === 'list' ? 'All Bills' : 'Bill Preview'}
         </h1>
-        {view === 'preview' && (
+        <div className="flex items-center gap-3">
+          {view === 'list' && user?.role === 'CA' && (
+            <button
+              onClick={toggleMergeMode}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                mergeMode
+                  ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              <GitMerge className="w-4 h-4" />
+              {mergeMode ? 'Cancel Merge' : 'Merge Bills'}
+            </button>
+          )}
+          {view === 'preview' && (
           <button
             onClick={handleBackToList}
             className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
@@ -399,8 +525,47 @@ const PrintBillPage = () => {
             <ChevronLeft className="w-4 h-4" />
             <span>Back to List</span>
           </button>
-        )}
+          )}
+        </div>
       </div>
+
+      {/* Merge action bar — appears when bills are selected in merge mode */}
+      {mergeMode && (
+        <div className={`mb-4 rounded-xl border p-4 flex items-center justify-between transition-all ${
+          selectedForMerge.length > 0 ? 'bg-indigo-50 border-indigo-200' : 'bg-gray-50 border-gray-200'
+        }`}>
+          <div className="flex items-center gap-3">
+            <GitMerge className={`w-5 h-5 ${selectedForMerge.length > 0 ? 'text-indigo-600' : 'text-gray-400'}`} />
+            <div>
+              <p className="text-sm font-medium text-gray-800">
+                {selectedForMerge.length === 0
+                  ? 'Select 2 or more DRAFT bills from the same company to merge'
+                  : `${selectedForMerge.length} bill${selectedForMerge.length > 1 ? 's' : ''} selected`
+                }
+              </p>
+              {selectedForMerge.length > 0 && !mergeValid && !sameClient && mergeHeaderIds.length > 1 && (
+                <p className="text-xs text-red-500 mt-0.5">Selected bills belong to different clients and cannot be merged</p>
+              )}
+              {selectedForMerge.length > 0 && crossCompany && (
+                <p className="text-xs text-amber-600 mt-0.5">
+                  Same client, different companies — you'll choose which company header to use
+                </p>
+              )}
+              {selectedForMerge.length > 0 && mergeValid && sameHeader && (
+                <p className="text-xs text-indigo-600 mt-0.5">Company: {mergeCompanyName}</p>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={handleMergeButtonClick}
+            disabled={!mergeValid}
+            className="px-5 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          >
+            <GitMerge className="w-4 h-4" />
+            Merge {selectedForMerge.length} Bills
+          </button>
+        </div>
+      )}
 
       {view === 'list' ? (
         <>
@@ -510,11 +675,17 @@ const PrintBillPage = () => {
               <table className="w-full">
                 <thead className="bg-gray-50">
                   <tr>
+                    {mergeMode && (
+                      <th className="px-3 py-2.5 w-8" />
+                    )}
                     <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase w-36">
                       Bill No
                     </th>
                     <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase w-32">
                       Company
+                    </th>
+                    <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase w-32">
+                      Client
                     </th>
                     <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase w-24">
                       Date
@@ -570,13 +741,39 @@ const PrintBillPage = () => {
                       </td>
                     </tr>
                   ) : (
-                    bills.map((bill) => (
-                      <tr key={bill.id} className="hover:bg-gray-50">
+                    bills.map((bill) => {
+                      const isAbsorbed = bill.status === 'ABSORBED';
+                      const isMergedDraft = !isAbsorbed && bill.status === 'DRAFT' && bill.is_merged;
+                      const isSelectedForMerge = selectedForMerge.includes(bill.id);
+                      return (
+                      <tr key={bill.id} className={`hover:bg-gray-50 ${isSelectedForMerge ? 'bg-indigo-50' : ''} ${isAbsorbed ? 'opacity-60' : ''}`}>
+                        {mergeMode && (
+                          <td className="px-3 py-2">
+                            {bill.status === 'DRAFT' && (
+                              <input
+                                type="checkbox"
+                                checked={isSelectedForMerge}
+                                onChange={() => toggleSelectForMerge(bill)}
+                                className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                              />
+                            )}
+                          </td>
+                        )}
                         <td className="px-3 py-2 whitespace-nowrap text-xs font-medium text-gray-900">
-                          {bill.bill_no}
+                          <div className="flex items-center gap-1.5">
+                            {bill.bill_no || <span className="text-gray-400 italic font-mono">{bill.display_ref || `DRAFT-${bill.id}`}</span>}
+                            {isMergedDraft && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] font-semibold rounded-full">
+                                <GitMerge className="w-2.5 h-2.5" /> Merged
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-3 py-2 text-xs text-gray-600 max-w-[128px]">
                           <div className="truncate" title={bill.company_name}>{bill.company_name}</div>
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-600 max-w-[128px]">
+                          <div className="truncate" title={bill.client_name}>{bill.client_name || <span className="text-gray-300">—</span>}</div>
                         </td>
                         <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-600">
                           {formatDate(bill.bill_date)}
@@ -597,10 +794,12 @@ const PrintBillPage = () => {
                                 ? 'bg-yellow-100 text-yellow-800'
                                 : bill.status === 'FINALIZED'
                                 ? 'bg-green-100 text-green-800'
+                                : bill.status === 'ABSORBED'
+                                ? 'bg-gray-100 text-gray-500'
                                 : 'bg-gray-100 text-gray-800'
                             }`}
                           >
-                            {bill.status}
+                            {bill.status === 'ABSORBED' ? 'Absorbed' : bill.status}
                           </span>
                         </td>
                         <td className="px-3 py-2 whitespace-nowrap">
@@ -685,10 +884,22 @@ const PrintBillPage = () => {
                                 <span>Pay</span>
                               </button>
                             )}
+                            {/* Unmerge — only for DRAFT bills that are an actual merge result */}
+                            {user?.role === 'CA' && bill.status === 'DRAFT' && bill.is_merged && (
+                              <button
+                                onClick={() => handleUnmerge(bill)}
+                                className="flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
+                                title="Unmerge — restore source bills"
+                              >
+                                <GitBranch className="w-3 h-3" />
+                                Unmerge
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
-                    ))
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -727,6 +938,41 @@ const PrintBillPage = () => {
       ) : (
         selectedBill && (
           <>
+            {/* Merge info banner */}
+            {selectedBill.merged_from && selectedBill.merged_from.length > 0 && (
+              <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-4 no-print flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <GitMerge className="w-5 h-5 text-indigo-600 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-indigo-800">Merged Bill</p>
+                    <p className="text-xs text-indigo-600">
+                      Created by merging: {selectedBill.merged_from.map(s => s.bill_no || s.display_ref || `DRAFT-${s.id}`).join(', ')}
+                    </p>
+                  </div>
+                </div>
+                {selectedBill.status === 'DRAFT' && user?.role === 'CA' && (
+                  <button
+                    onClick={() => handleUnmerge(selectedBill)}
+                    className="flex items-center gap-2 px-4 py-2 bg-white border border-indigo-300 text-indigo-700 rounded-lg text-sm font-medium hover:bg-indigo-50 transition-colors"
+                  >
+                    <GitBranch className="w-4 h-4" />
+                    Unmerge
+                  </button>
+                )}
+              </div>
+            )}
+            {selectedBill.absorbed_into && (
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4 no-print flex items-center gap-3">
+                <Info className="w-5 h-5 text-gray-500 flex-shrink-0" />
+                <p className="text-sm text-gray-600">
+                  This bill was <span className="font-semibold">absorbed</span> into merged bill{' '}
+                  <span className="font-mono font-semibold text-gray-800">
+                    {selectedBill.absorbed_into.bill_no || selectedBill.absorbed_into.display_ref || `DRAFT-${selectedBill.absorbed_into.id}`}
+                  </span>
+                </p>
+              </div>
+            )}
+
             {/* Action Buttons */}
             <div className="bg-white rounded-lg shadow p-4 mb-6 no-print">
               <div className="flex flex-wrap gap-3">
@@ -1340,6 +1586,165 @@ const PrintBillPage = () => {
               className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Delete Permanently
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Header Pick Modal (cross-company merge) ─────────────────── */}
+      <Modal
+        isOpen={showHeaderPickModal}
+        onClose={() => { setShowHeaderPickModal(false); setPickedHeaderId(null); }}
+        title="Choose Company Header"
+      >
+        <div className="space-y-4">
+          <div className="bg-amber-50 border border-amber-100 rounded-lg p-4 flex items-start gap-3">
+            <GitMerge className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-amber-800">Same client, different companies</p>
+              <p className="text-xs text-amber-600 mt-1">
+                The selected bills are from different company headers but belong to the same client.
+                Choose which company's letterhead the merged bill should carry.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {mergeHeaderOptions.map(opt => (
+              <button
+                key={opt.id}
+                onClick={() => setPickedHeaderId(opt.id)}
+                className={`w-full flex items-center justify-between px-4 py-3 rounded-lg border-2 text-left transition-colors ${
+                  pickedHeaderId === opt.id
+                    ? 'border-indigo-500 bg-indigo-50'
+                    : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
+                }`}
+              >
+                <span className="text-sm font-medium text-gray-800">{opt.name}</span>
+                {pickedHeaderId === opt.id && (
+                  <span className="text-xs bg-indigo-600 text-white px-2 py-0.5 rounded-full">Selected</span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              onClick={() => { setShowHeaderPickModal(false); setPickedHeaderId(null); }}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleHeaderPickConfirm}
+              disabled={!pickedHeaderId}
+              className="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              <GitMerge className="w-4 h-4" />
+              Continue to Merge
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Merge Confirmation Modal ────────────────────────────────── */}
+      <Modal
+        isOpen={showMergeModal}
+        onClose={() => { setShowMergeModal(false); setMergeNotes(''); }}
+        title="Confirm Merge"
+      >
+        <div className="space-y-4">
+          <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <GitMerge className="w-5 h-5 text-indigo-600" />
+              <p className="text-sm font-semibold text-indigo-800">
+                Merge {selectedForMerge.length} bills —{' '}
+                {crossCompany
+                  ? (mergeHeaderOptions.find(h => h.id === pickedHeaderId)?.name || '')
+                  : mergeCompanyName}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              {selectedBillObjects.map(b => (
+                <div key={b.id} className="flex items-center justify-between text-xs bg-white rounded px-3 py-1.5 border border-indigo-100">
+                  <span className="font-mono text-gray-700">{b.bill_no || b.display_ref || `DRAFT-${b.id}`}</span>
+                  <span className="text-gray-500">{formatDate(b.bill_date)}</span>
+                  <span className="font-semibold text-gray-800">{formatCurrency(b.total_invoice_value)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <p className="text-xs text-gray-500">
+            The selected bills will be marked <strong>Absorbed</strong> and their services combined into a new Draft bill. The real bill number is assigned only when you finalize the merged bill. This can be reversed with <strong>Unmerge</strong> as long as the merged bill stays as Draft.
+          </p>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Notes (optional)</label>
+            <input
+              type="text"
+              value={mergeNotes}
+              onChange={e => setMergeNotes(e.target.value)}
+              placeholder="e.g. Combined Q3 services for Sharma & Co."
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              onClick={() => { setShowMergeModal(false); setMergeNotes(''); }}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleConfirmMerge}
+              disabled={merging}
+              className="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2"
+            >
+              {merging ? (
+                <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Merging...</>
+              ) : (
+                <><GitMerge className="w-4 h-4" /> Merge Bills</>
+              )}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Unmerge Confirmation Modal ──────────────────────────────── */}
+      <Modal
+        isOpen={showUnmergeModal}
+        onClose={() => { setShowUnmergeModal(false); setBillToUnmerge(null); }}
+        title="Confirm Unmerge"
+      >
+        <div className="space-y-4">
+          <div className="bg-purple-50 border border-purple-100 rounded-lg p-4 flex items-start gap-3">
+            <GitBranch className="w-5 h-5 text-purple-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-purple-800">Restore source bills</p>
+              <p className="text-xs text-purple-600 mt-1">
+                The merged draft will be deleted. All source bills that were absorbed will be restored to <strong>Draft</strong> status with their original services intact.
+              </p>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500">
+            This action cannot be undone after the bills are separately edited or finalized.
+          </p>
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              onClick={() => { setShowUnmergeModal(false); setBillToUnmerge(null); }}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmUnmerge}
+              disabled={unmerging}
+              className="px-5 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
+            >
+              {unmerging ? (
+                <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Unmerging...</>
+              ) : (
+                <><GitBranch className="w-4 h-4" /> Yes, Unmerge</>
+              )}
             </button>
           </div>
         </div>

@@ -267,7 +267,7 @@ exports.searchClients = async (req, res) => {
           OR phone ILIKE $1
        ORDER BY client_name ASC
        LIMIT 20`,
-      [`%${searchQuery}%`]
+      [`${searchQuery}%`]
     );
 
     res.json({

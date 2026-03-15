@@ -479,21 +479,32 @@ const MastersPage = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Phone <span className="text-red-500">*</span></label>
                   <input type="tel" name="phone" defaultValue={editingItem?.phone} required pattern="[0-9]{10}" maxLength={10}
+                    onInput={(e) => { e.target.value = e.target.value.replace(/[^0-9]/g, ''); }}
+                    placeholder="10-digit number"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Email <span className="text-red-500">*</span></label>
                   <input type="email" name="email" defaultValue={editingItem?.email} required
+                    placeholder="company@example.com"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">GSTIN <span className="text-red-500">*</span></label>
                   <input type="text" name="gstin" defaultValue={editingItem?.gstin} required maxLength={15}
+                    pattern="[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}"
+                    title="15-character GSTIN (e.g. 22AAAAA0000A1Z5)"
+                    placeholder="22AAAAA0000A1Z5"
+                    onInput={(e) => { e.target.value = e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, ''); }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">PAN <span className="text-red-500">*</span></label>
                   <input type="text" name="pan" defaultValue={editingItem?.pan} required maxLength={10}
+                    pattern="[A-Z]{5}[0-9]{4}[A-Z]{1}"
+                    title="10-character PAN (e.g. ABCDE1234F)"
+                    placeholder="ABCDE1234F"
+                    onInput={(e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
                 </div>
                 <div className="md:col-span-2">
@@ -545,11 +556,19 @@ const MastersPage = () => {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Account Number <span className="text-red-500">*</span></label>
                     <input type="text" name="account_number" defaultValue={editingItem?.account_number} required
+                      pattern="[0-9]{9,18}" minLength={9} maxLength={18}
+                      title="Account number must be 9–18 digits"
+                      placeholder="Digits only, 9–18 characters"
+                      onInput={(e) => { e.target.value = e.target.value.replace(/[^0-9]/g, ''); }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">IFSC Code <span className="text-red-500">*</span></label>
                     <input type="text" name="ifsc_code" defaultValue={editingItem?.ifsc_code} required maxLength={11}
+                      pattern="[A-Z]{4}0[A-Z0-9]{6}"
+                      title="IFSC format: 4 letters + 0 + 6 alphanumeric (e.g. HDFC0001234)"
+                      placeholder="HDFC0001234"
+                      onInput={(e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
                   </div>
                   <div className="md:col-span-2">

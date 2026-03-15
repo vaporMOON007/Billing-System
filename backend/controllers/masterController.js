@@ -193,8 +193,7 @@ exports.updateHeader = async (req, res) => {
              account_holder_name = COALESCE($2, account_holder_name),
              account_number = COALESCE($3, account_number),
              ifsc_code = COALESCE($4, ifsc_code),
-             branch_name = COALESCE($5, branch_name),
-             updated_at = CURRENT_TIMESTAMP
+             branch_name = COALESCE($5, branch_name)
          WHERE header_id = $6`,
         [updates.bank_name, updates.account_holder_name, updates.account_number,
          updates.ifsc_code, updates.branch_name, id]
@@ -319,12 +318,11 @@ exports.updateParticular = async (req, res) => {
     const { service_name, sac_code, rate } = req.body;
 
     const result = await query(
-      `UPDATE particulars_master 
-       SET service_name = COALESCE($1, service_name),
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $4
+      `UPDATE particulars_master
+       SET service_name = COALESCE($1, service_name)
+       WHERE id = $2
        RETURNING *`,
-      [service_name, sac_code, rate, id]
+      [service_name, id]
     );
 
     if (result.rows.length === 0) {
@@ -447,13 +445,11 @@ exports.updateGSTRate = async (req, res) => {
     const { rate_name, rate_percentage } = req.body;
 
     const result = await query(
-      `UPDATE gst_rates_master 
-       SET rate_name = COALESCE($1, rate_name),
-           rate_percentage = COALESCE($2, rate_percentage),
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $3
+      `UPDATE gst_rates_master
+       SET rate_percentage = COALESCE($1, rate_percentage)
+       WHERE id = $2
        RETURNING *`,
-      [rate_name, rate_percentage, id]
+      [rate_percentage, id]
     );
 
     if (result.rows.length === 0) {
@@ -576,10 +572,9 @@ exports.updatePaymentTerm = async (req, res) => {
     const { term_name, days_to_add } = req.body;
 
     const result = await query(
-      `UPDATE payment_terms_master 
+      `UPDATE payment_terms_master
        SET term_name = COALESCE($1, term_name),
-           days_to_add = COALESCE($2, days_to_add),
-           updated_at = CURRENT_TIMESTAMP
+           days_to_add = COALESCE($2, days_to_add)
        WHERE id = $3
        RETURNING *`,
       [term_name, days_to_add, id]

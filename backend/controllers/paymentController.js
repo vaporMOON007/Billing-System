@@ -8,7 +8,9 @@ exports.markPayment = async (req, res) => {
   const client = await require('../config/database').pool.connect();
 
   try {
-    const { bill_id, payment_date, amount_paid, notes } = req.body;
+    const { bill_id, payment_date, amount_paid, notes, payment_mode } = req.body;
+    const validModes = ['NEFT', 'UPI', 'CASH'];
+    const mode = validModes.includes(payment_mode) ? payment_mode : 'NEFT';
 
     // Validate input
     if (!bill_id || !payment_date || !amount_paid) {
@@ -65,10 +67,10 @@ exports.markPayment = async (req, res) => {
 
     // Insert payment record
     const paymentResult = await client.query(
-      `INSERT INTO bill_payments (bill_id, payment_date, amount_paid, notes, recorded_by)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO bill_payments (bill_id, payment_date, amount_paid, notes, recorded_by, payment_mode)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [bill_id, payment_date, amount_paid, notes || null, req.user.id]
+      [bill_id, payment_date, amount_paid, notes || null, req.user.id, mode]
     );
 
     await client.query('COMMIT');
@@ -86,8 +88,8 @@ exports.markPayment = async (req, res) => {
       action: 'MARK_PAYMENT',
       entityType: 'PAYMENT',
       entityId: payment.id,
-      description: `Payment received — ₹${parseFloat(amount_paid).toFixed(2)}`,
-      metadata: { payment_id: payment.id, bill_id, bill_no: billNo, amount_paid: parseFloat(amount_paid), payment_date },
+      description: `Payment received — ₹${parseFloat(amount_paid).toFixed(2)} via ${mode}`,
+      metadata: { payment_id: payment.id, bill_id, bill_no: billNo, amount_paid: parseFloat(amount_paid), payment_date, payment_mode: mode },
     });
 
     res.status(201).json({

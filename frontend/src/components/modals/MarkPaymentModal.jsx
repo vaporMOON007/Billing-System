@@ -10,6 +10,7 @@ const MarkPaymentModal = ({ isOpen, onClose, bill, onPaymentMarked }) => {
   const [formData, setFormData] = useState({
     payment_date: new Date(),
     amount_paid: balance,
+    payment_mode: 'NEFT',
     notes: ''
   });
 
@@ -20,6 +21,7 @@ const MarkPaymentModal = ({ isOpen, onClose, bill, onPaymentMarked }) => {
       setFormData({
         payment_date: new Date(),
         amount_paid: freshBalance,
+        payment_mode: 'NEFT',
         notes: ''
       });
     }
@@ -122,6 +124,9 @@ const MarkPaymentModal = ({ isOpen, onClose, bill, onPaymentMarked }) => {
                 onChange={(date) => setFormData({ ...formData, payment_date: date })}
                 dateFormat="dd/MM/yyyy"
                 maxDate={new Date()}
+                showMonthDropdown
+                showYearDropdown
+                dropdownMode="select"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
                 required
               />
@@ -150,6 +155,31 @@ const MarkPaymentModal = ({ isOpen, onClose, bill, onPaymentMarked }) => {
                   <IndianRupee className="w-4 h-4" />
                   Mark Full Payment ({formatCurrency(balance)})
                 </button>
+              </div>
+            </div>
+
+            {/* Payment Mode */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Payment Mode <span className="text-red-500">*</span>
+              </label>
+              <div className="flex gap-2">
+                {['NEFT', 'UPI', 'CASH'].map(mode => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, payment_mode: mode }))}
+                    className={`flex-1 py-2 rounded-lg text-sm font-semibold border-2 transition-colors ${
+                      formData.payment_mode === mode
+                        ? mode === 'NEFT'  ? 'border-blue-600 bg-blue-600 text-white'
+                        : mode === 'UPI'   ? 'border-purple-600 bg-purple-600 text-white'
+                        :                   'border-green-600 bg-green-600 text-white'
+                        : 'border-gray-200 bg-white text-gray-600 hover:border-gray-400'
+                    }`}
+                  >
+                    {mode}
+                  </button>
+                ))}
               </div>
             </div>
 

@@ -327,6 +327,9 @@ const Dashboard = () => {
               onChange={(date) => setFilters({ ...filters, date_from: date?.toISOString().split('T')[0] || '' })}
               dateFormat="dd/MM/yyyy"
               placeholderText="Select from date"
+              showMonthDropdown
+              showYearDropdown
+              dropdownMode="select"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
               isClearable
             />
@@ -341,6 +344,9 @@ const Dashboard = () => {
               onChange={(date) => setFilters({ ...filters, date_to: date?.toISOString().split('T')[0] || '' })}
               dateFormat="dd/MM/yyyy"
               placeholderText="Select to date"
+              showMonthDropdown
+              showYearDropdown
+              dropdownMode="select"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
               isClearable
             />

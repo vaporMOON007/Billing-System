@@ -604,6 +604,9 @@ const PrintBillPage = () => {
                 onChange={(date) => setFilters({ ...filters, date_from: date?.toISOString().split('T')[0] || '' })}
                 dateFormat="dd/MM/yyyy"
                 placeholderText="From date"
+                showMonthDropdown
+                showYearDropdown
+                dropdownMode="select"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 isClearable
               />
@@ -618,6 +621,9 @@ const PrintBillPage = () => {
                 onChange={(date) => setFilters({ ...filters, date_to: date?.toISOString().split('T')[0] || '' })}
                 dateFormat="dd/MM/yyyy"
                 placeholderText="To date"
+                showMonthDropdown
+                showYearDropdown
+                dropdownMode="select"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 isClearable
               />
@@ -881,7 +887,7 @@ const PrintBillPage = () => {
                                 title={bill.payment_status === 'PAID' ? 'Already fully paid' : 'Mark Payment'}
                               >
                                 <IndianRupee className="w-3 h-3" />
-                                <span>Pay</span>
+                                <span>Mark Payment</span>
                               </button>
                             )}
                             {/* Unmerge — only for DRAFT bills that are an actual merge result */}
@@ -1156,7 +1162,9 @@ const PrintBillPage = () => {
                             {formatDate(service.service_date)}
                           </td>
                           <td className="border border-gray-300 px-4 py-2 text-sm">
-                            {service.service_year}
+                            {service.service_year
+                              ? `${parseInt(service.service_year) - 1}-${String(service.service_year).slice(-2)}`
+                              : '—'}
                           </td>
                           <td className="border border-gray-300 px-4 py-2 text-sm text-right">
                             {formatCurrency(service.amount)}
@@ -1234,7 +1242,7 @@ const PrintBillPage = () => {
                     <div className="text-center">
                       <p className="text-sm font-semibold text-gray-700 mb-2">Scan to Pay</p>
                       <QRCode
-                        value={`upi://pay?pa=${selectedBill.upi_id}&pn=${encodeURIComponent(selectedBill.company_name)}&am=${selectedBill.total_invoice_value}&cu=INR&tn=${selectedBill.bill_no}`}
+                        value={`upi://pay?pa=${selectedBill.upi_id}&pn=${encodeURIComponent(selectedBill.company_name)}&am=${selectedBill.total_invoice_value}&cu=INR&tn=${encodeURIComponent(selectedBill.bill_no || '')}`}
                         size={128}
                         level="M"
                         className="border-2 border-gray-300 p-2 rounded"
@@ -1264,7 +1272,9 @@ const PrintBillPage = () => {
 
               {/* Payment Terms */}
               <div className="mt-6 text-center text-sm text-gray-600">
-                <p>Payment Terms: {selectedBill.payment_term}</p>
+                {selectedBill.payment_term && (
+                  <p>Payment Terms: {selectedBill.payment_term}</p>
+                )}
                 <p className="mt-2">Thank you for your business!</p>
               </div>
 

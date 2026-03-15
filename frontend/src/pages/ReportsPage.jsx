@@ -45,9 +45,10 @@ export default function ReportsPage() {
   const [headers, setHeaders] = useState([]);
 
   // filters
-  const [fy,       setFy]       = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo,   setDateTo]   = useState('');
+  const [fy,           setFy]           = useState('');
+  const [dateFrom,     setDateFrom]     = useState('');
+  const [dateTo,       setDateTo]       = useState('');
+  const [clientSearch, setClientSearch] = useState('');
 
   // ── financial year options ───────────────────────────────────────────
   const fyOptions = (() => {
@@ -206,7 +207,16 @@ export default function ReportsPage() {
             <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
               <div className="px-5 pt-5 pb-3">
                 <SectionHead icon={Users} title="Client-wise Receivables" count={data.by_client?.length} />
-                <p className="text-xs text-gray-400 mb-3">Click a client name to see their bills in Print Bill</p>
+                <div className="flex items-center gap-3 mb-3">
+                  <p className="text-xs text-gray-400 flex-1">Click a client name to see their bills in Print Bill</p>
+                  <input
+                    type="text"
+                    value={clientSearch}
+                    onChange={(e) => setClientSearch(e.target.value)}
+                    placeholder="Filter by client name..."
+                    className="w-56 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                  />
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -218,9 +228,13 @@ export default function ReportsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {(data.by_client || []).length === 0 ? (
+                    {(data.by_client || []).filter(row =>
+                      !clientSearch || row.client_name?.toLowerCase().includes(clientSearch.toLowerCase())
+                    ).length === 0 ? (
                       <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400 text-sm">No data</td></tr>
-                    ) : (data.by_client || []).map(row => (
+                    ) : (data.by_client || []).filter(row =>
+                      !clientSearch || row.client_name?.toLowerCase().includes(clientSearch.toLowerCase())
+                    ).map(row => (
                       <tr key={row.client_id} className="hover:bg-indigo-50 transition-colors">
                         <td className="px-4 py-3">
                           <button

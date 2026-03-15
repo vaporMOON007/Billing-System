@@ -279,24 +279,14 @@ const ServicesFormPage = () => {
   };
 
   const handleSearchClients = debounce(async (searchTerm) => {
-    console.log("🔎 ServicesFormPage - Searching for:", searchTerm);
-    
-    if (!searchTerm || searchTerm.length < 2) {
-      console.log("🔎 Search term too short, skipping");
-      return;
-    }
-    
+    if (!searchTerm) return;
     try {
       const response = await clientAPI.searchClients(searchTerm);
-      console.log("🔎 API Response:", response.data);
-      console.log("🔎 Found clients:", response.data.data);
-      
       setClients(response.data.data);
-      console.log("🔎 Updated clients state, count:", response.data.data.length);
     } catch (error) {
-      console.error('❌ Failed to search clients:', error);
+      console.error('Failed to search clients:', error);
     }
-  }, 300);
+  }, 200);
 
   const handleCreateClient = (clientName) => {
     setNewClientName(clientName);
@@ -382,7 +372,13 @@ const ServicesFormPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
+    // Require client
+    if (!formData.client_id) {
+      toast.error('Client Name is required. Please select a client before saving.');
+      return;
+    }
+
     // NEW: Validate services first
     if (!validateServices()) {
       return;
@@ -541,6 +537,9 @@ const ServicesFormPage = () => {
                   selected={formData.bill_date}
                   onChange={(date) => setFormData({ ...formData, bill_date: date })}
                   dateFormat="dd/MM/yyyy"
+                  showMonthDropdown
+                  showYearDropdown
+                  dropdownMode="select"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   required
                 />
@@ -551,7 +550,7 @@ const ServicesFormPage = () => {
 
               {/* Client Name */}
               <SearchableDropdown
-                label="Client Name"
+                label="Client Name *"
                 value={formData.client_id}
                 onChange={(value) => setFormData({ ...formData, client_id: value })}
                 options={clientOptions}
@@ -559,6 +558,7 @@ const ServicesFormPage = () => {
                 onSearch={handleSearchClients}
                 allowCreate
                 onCreate={handleCreateClient}
+                required
               />
 
               {/* Payment Terms */}

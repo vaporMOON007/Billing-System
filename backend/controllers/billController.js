@@ -309,11 +309,13 @@ exports.getBillById = async (req, res) => {
         c.address_line2    AS client_address_line2,
         c.city             AS client_city,
         c.state            AS client_state,
-        c.pincode          AS client_pincode
+        c.pincode          AS client_pincode,
+        pt.term_name       AS payment_term
       FROM bills b
       LEFT JOIN header_master h  ON b.header_id = h.id
       LEFT JOIN header_bank_details hb ON hb.header_id = h.id
       LEFT JOIN clients_master c  ON b.client_id = c.id
+      LEFT JOIN payment_terms_master pt ON b.payment_term_id = pt.id
       WHERE b.id = $1`,
       [id]
     );
@@ -970,11 +972,13 @@ exports.generatePDF = async (req, res) => {
         hbd.bank_name, hbd.account_number, hbd.ifsc_code, hbd.branch_name,
         c.client_name, c.contact_person, c.gstin as client_gstin,
         c.address_line1 as client_address_line1, c.city as client_city,
-        c.state as client_state, c.pincode as client_pincode
+        c.state as client_state, c.pincode as client_pincode,
+        pt.term_name as payment_term_name
        FROM bills b
        LEFT JOIN header_master h ON b.header_id = h.id
        LEFT JOIN header_bank_details hbd ON h.id = hbd.header_id
        LEFT JOIN clients_master c ON b.client_id = c.id
+       LEFT JOIN payment_terms_master pt ON b.payment_term_id = pt.id
        WHERE b.id = $1`,
       [id]
     );
@@ -1022,7 +1026,11 @@ exports.generatePDF = async (req, res) => {
     const billInfoY = doc.y;
     doc.text(`Invoice No: ${bill.bill_no || ''}`, 50, billInfoY);
     doc.text(`Date: ${new Date(bill.bill_date).toLocaleDateString('en-IN')}`, 350, billInfoY);
-    doc.moveDown(1);
+    doc.moveDown(0.5);
+    const row2Y = doc.y;
+    if (bill.payment_term_name) doc.text(`Payment Terms: ${bill.payment_term_name}`, 50, row2Y);
+    if (bill.due_date) doc.text(`Due Date: ${new Date(bill.due_date).toLocaleDateString('en-IN')}`, 350, row2Y);
+    doc.moveDown(0.8);
 
     // Client Details
     if (bill.client_name) {

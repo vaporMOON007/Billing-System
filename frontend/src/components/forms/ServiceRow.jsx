@@ -60,6 +60,9 @@ const ServiceRow = ({
           onChange={(date) => handleFieldChange('service_date', date?.toISOString().split('T')[0])}
           dateFormat="dd/MM/yyyy"
           placeholderText="Select date"
+          showMonthDropdown
+          showYearDropdown
+          dropdownMode="select"
           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
         />
       </td>
@@ -80,8 +83,11 @@ const ServiceRow = ({
         <input
           type="number"
           step="0.01"
+          min="0"
           value={service.amount || ''}
           onChange={(e) => handleFieldChange('amount', parseFloat(e.target.value) || 0)}
+          onKeyDown={(e) => ['e', 'E', '+', '-'].includes(e.key) && e.preventDefault()}
+          onWheel={(e) => e.target.blur()}
           placeholder="0.00"
           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
           required

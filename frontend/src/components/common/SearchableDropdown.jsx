@@ -17,30 +17,37 @@ const SearchableDropdown = ({
   const [filteredOptions, setFilteredOptions] = useState(options || []);
   const dropdownRef = useRef(null);
 
+  // Effect 1: When search term changes — always filter immediately for instant feedback,
+  // AND fire the API (if backed) so fresher/larger results come back via Effect 2
   useEffect(() => {
-    console.log("🔍 SearchableDropdown - searchTerm:", searchTerm);
-    console.log("🔍 SearchableDropdown - options prop:", options);
-    
-    if (searchTerm) {
-      if (onSearch) {
-        // Call external search
-        onSearch(searchTerm);
-        // Update filteredOptions with the options prop (API results)
-        setFilteredOptions(options || []);
-        console.log("🔍 After API search, filteredOptions set to:", options);
-      } else {
-        // Local filtering
-        const filtered = (options || []).filter((option) =>
-          option.label.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-        setFilteredOptions(filtered);
-        console.log("🔍 Local filter, filteredOptions:", filtered);
-      }
-    } else {
+    if (!searchTerm) {
       setFilteredOptions(options || []);
-      console.log("🔍 No search term, showing all options");
+      return;
     }
-  }, [searchTerm, options, onSearch]);
+    const lower = searchTerm.toLowerCase();
+    // Instant local filter on whatever options are in memory right now
+    setFilteredOptions(
+      (options || []).filter((o) => o.label.toLowerCase().startsWith(lower))
+    );
+    // Also fire API search for complete/fresh results
+    if (onSearch) {
+      onSearch(searchTerm);
+    }
+  }, [searchTerm]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Effect 2: When API results arrive (options prop changes), re-apply the filter
+  useEffect(() => {
+    if (onSearch) {
+      if (searchTerm) {
+        const lower = searchTerm.toLowerCase();
+        setFilteredOptions(
+          (options || []).filter((o) => o.label.toLowerCase().startsWith(lower))
+        );
+      } else {
+        setFilteredOptions(options || []);
+      }
+    }
+  }, [options]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const handleClickOutside = (event) => {

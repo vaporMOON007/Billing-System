@@ -1,9 +1,6 @@
 """
 Billing System — one-command setup.
-
-Usage:
-    pip install -r requirements.txt     ← recommended
-    python setup.py                     ← also works
+Run: python setup.py
 """
 import subprocess
 import sys
@@ -11,74 +8,54 @@ import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+DIVIDER = "=" * 52
 
-def run_npm_install():
-    for folder in ["backend", "frontend"]:
-        path = os.path.join(BASE_DIR, folder)
-        if os.path.isdir(path):
-            print(f"\n  Installing npm packages in /{folder} ...")
-            result = subprocess.call(["npm", "install"], cwd=path)
-            if result != 0:
-                print(f"  npm install failed in /{folder} (exit code {result})")
-                sys.exit(result)
-            print(f"  /{folder} done.")
-        else:
-            print(f"  Folder not found: {path} — skipping.")
+def run(cmd, cwd=None):
+    # shell=True required on Windows so npm.cmd / npx.cmd are found
+    return subprocess.call(cmd, cwd=cwd, shell=True)
 
-
-def run_pip_install():
-    print("\n  Installing Python packages ...")
-    result = subprocess.call(
-        [sys.executable, "-m", "pip", "install", "reportlab==4.2.5"]
-    )
-    if result != 0:
-        print("  pip install failed.")
-        sys.exit(result)
-    print("  Python packages done.")
-
-
-# ── Run directly: python setup.py ──────────────────────────
-if __name__ == "__main__" and (len(sys.argv) == 1 or sys.argv[1] not in (
-    "install", "develop", "egg_info", "dist_info",
-    "build", "bdist_wheel", "sdist", "--help", "--help-commands",
-)):
-    print("=" * 52)
+def main():
+    print(DIVIDER)
     print("  Billing System — Setup")
-    print("=" * 52)
-    run_pip_install()
-    run_npm_install()
-    print("\n" + "=" * 52)
+    print(DIVIDER)
+
+    # 1. Python packages
+    print("\n[1/3] Installing Python packages ...")
+    result = run(f'"{sys.executable}" -m pip install reportlab==4.2.5')
+    if result != 0:
+        print("      FAILED — check pip is available.")
+        sys.exit(result)
+    print("      Done.")
+
+    # 2. Backend npm packages
+    backend_path = os.path.join(BASE_DIR, "backend")
+    print("\n[2/3] Installing backend npm packages ...")
+    if os.path.isdir(backend_path):
+        result = run("npm install", cwd=backend_path)
+        if result != 0:
+            print("      FAILED — check Node.js / npm is installed.")
+            sys.exit(result)
+        print("      Done.")
+    else:
+        print("      /backend folder not found — skipping.")
+
+    # 3. Frontend npm packages
+    frontend_path = os.path.join(BASE_DIR, "frontend")
+    print("\n[3/3] Installing frontend npm packages ...")
+    if os.path.isdir(frontend_path):
+        result = run("npm install", cwd=frontend_path)
+        if result != 0:
+            print("      FAILED — check Node.js / npm is installed.")
+            sys.exit(result)
+        print("      Done.")
+    else:
+        print("      /frontend folder not found — skipping.")
+
+    print("\n" + DIVIDER)
     print("  Setup complete!")
     print("  Start backend : cd backend  && npm run dev")
     print("  Start frontend: cd frontend && npm run dev")
-    print("=" * 52)
-    sys.exit(0)
+    print(DIVIDER + "\n")
 
-# ── Called by pip (pip install -r requirements.txt) ────────
-from setuptools import setup
-from setuptools.command.develop import develop
-from setuptools.command.install import install
-
-
-class PostDevelop(develop):
-    def run(self):
-        super().run()
-        run_npm_install()
-
-
-class PostInstall(install):
-    def run(self):
-        super().run()
-        run_npm_install()
-
-
-setup(
-    name="billing-system-setup",
-    version="1.0.0",
-    packages=[],
-    cmdclass={
-        "develop": PostDevelop,
-        "install": PostInstall,
-    },
-    python_requires=">=3.9",
-)
+if __name__ == "__main__":
+    main()

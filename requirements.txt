@@ -1,1 +1,20 @@
+# ============================================================
+#  BILLING SYSTEM — One-command setup
+#  Run: pip install -r requirements.txt
+#
+#  This will:
+#    1. Install Python dependency (reportlab)
+#    2. Auto-run `npm install` inside /backend
+#    3. Auto-run `npm install` inside /frontend
+#
+#  Prerequisites on your machine:
+#    - Python >= 3.9
+#    - Node.js >= 18.x  +  npm >= 9.x
+#    - PostgreSQL >= 14.x (running and accessible)
+# ============================================================
+
+# Python dependency
 reportlab==4.2.5
+
+# Local setup package — triggers npm install post-install hook
+-e .

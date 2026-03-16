@@ -1,15 +1,13 @@
 """
 Billing System — one-command setup.
-Run:  pip install -r requirements.txt
-This installs Python deps AND triggers npm install for backend + frontend.
+
+Usage:
+    pip install -r requirements.txt     ← recommended
+    python setup.py                     ← also works
 """
 import subprocess
 import sys
 import os
-from setuptools import setup
-from setuptools.command.develop import develop
-from setuptools.command.install import install
-
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -18,14 +16,48 @@ def run_npm_install():
     for folder in ["backend", "frontend"]:
         path = os.path.join(BASE_DIR, folder)
         if os.path.isdir(path):
-            print(f"\n📦  Running npm install in /{folder} ...")
+            print(f"\n  Installing npm packages in /{folder} ...")
             result = subprocess.call(["npm", "install"], cwd=path)
             if result != 0:
-                print(f"⚠️  npm install failed in /{folder} (exit code {result})")
+                print(f"  npm install failed in /{folder} (exit code {result})")
                 sys.exit(result)
-            print(f"✅  /{folder} npm packages installed.")
+            print(f"  /{folder} done.")
         else:
-            print(f"⚠️  Folder not found: {path} — skipping.")
+            print(f"  Folder not found: {path} — skipping.")
+
+
+def run_pip_install():
+    print("\n  Installing Python packages ...")
+    result = subprocess.call(
+        [sys.executable, "-m", "pip", "install", "reportlab==4.2.5"]
+    )
+    if result != 0:
+        print("  pip install failed.")
+        sys.exit(result)
+    print("  Python packages done.")
+
+
+# ── Run directly: python setup.py ──────────────────────────
+if __name__ == "__main__" and (len(sys.argv) == 1 or sys.argv[1] not in (
+    "install", "develop", "egg_info", "dist_info",
+    "build", "bdist_wheel", "sdist", "--help", "--help-commands",
+)):
+    print("=" * 52)
+    print("  Billing System — Setup")
+    print("=" * 52)
+    run_pip_install()
+    run_npm_install()
+    print("\n" + "=" * 52)
+    print("  Setup complete!")
+    print("  Start backend : cd backend  && npm run dev")
+    print("  Start frontend: cd frontend && npm run dev")
+    print("=" * 52)
+    sys.exit(0)
+
+# ── Called by pip (pip install -r requirements.txt) ────────
+from setuptools import setup
+from setuptools.command.develop import develop
+from setuptools.command.install import install
 
 
 class PostDevelop(develop):
@@ -43,7 +75,7 @@ class PostInstall(install):
 setup(
     name="billing-system-setup",
     version="1.0.0",
-    description="Setup hook — installs Node.js deps for backend and frontend",
+    packages=[],
     cmdclass={
         "develop": PostDevelop,
         "install": PostInstall,

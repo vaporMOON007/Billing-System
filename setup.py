@@ -43,7 +43,7 @@ def main():
     frontend_path = os.path.join(BASE_DIR, "frontend")
     print("\n[3/3] Installing frontend npm packages ...")
     if os.path.isdir(frontend_path):
-        result = run("npm install", cwd=frontend_path)
+        result = run("npm install --legacy-peer-deps", cwd=frontend_path)
         if result != 0:
             print("      FAILED — check Node.js / npm is installed.")
             sys.exit(result)

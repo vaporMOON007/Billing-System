@@ -1141,7 +1141,10 @@ const PrintBillPage = () => {
                         Amount
                       </th>
                       <th className="border border-gray-300 px-4 py-2 text-right text-sm font-semibold">
-                        GST ({selectedBill.services?.[0]?.rate_percentage ?? ''}%)
+                        GST Rate
+                      </th>
+                      <th className="border border-gray-300 px-4 py-2 text-right text-sm font-semibold">
+                        GST Amount
                       </th>
                       <th className="border border-gray-300 px-4 py-2 text-right text-sm font-semibold">
                         Total
@@ -1170,6 +1173,9 @@ const PrintBillPage = () => {
                             {formatCurrency(service.amount)}
                           </td>
                           <td className="border border-gray-300 px-4 py-2 text-sm text-right">
+                            {service.rate_percentage != null ? `${service.rate_percentage}%` : '—'}
+                          </td>
+                          <td className="border border-gray-300 px-4 py-2 text-sm text-right">
                             {formatCurrency(service.gst_amount)}
                           </td>
                           <td className="border border-gray-300 px-4 py-2 text-sm text-right font-semibold">
@@ -1194,6 +1200,9 @@ const PrintBillPage = () => {
                         {formatCurrency(selectedBill.subtotal)}
                       </td>
                       <td className="border border-gray-300 px-4 py-2 text-right font-semibold">
+                        {/* GST Rate col — no aggregate */}
+                      </td>
+                      <td className="border border-gray-300 px-4 py-2 text-right font-semibold">
                         {formatCurrency(selectedBill.gst_total)}
                       </td>
                       <td className="border border-gray-300 px-4 py-2 text-right font-semibold">
@@ -1201,7 +1210,7 @@ const PrintBillPage = () => {
                       </td>
                     </tr>
                     <tr className="bg-primary-50">
-                      <td colSpan="6" className="border border-gray-300 px-4 py-3 text-right text-lg font-bold">
+                      <td colSpan="7" className="border border-gray-300 px-4 py-3 text-right text-lg font-bold">
                         Total Invoice Value:
                       </td>
                       <td className="border border-gray-300 px-4 py-3 text-right text-lg font-bold text-primary-600">

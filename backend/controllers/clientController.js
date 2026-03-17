@@ -18,10 +18,13 @@ exports.createClient = async (req, res) => {
       pincode
     } = req.body;
 
+    // Normalise GSTIN — treat empty string as null
+    const gstinValue = gstin && gstin.trim() !== '' ? gstin.trim() : null;
+
     // Validate GSTIN format if provided
-    if (gstin) {
+    if (gstinValue) {
       const gstinRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-      if (!gstinRegex.test(gstin)) {
+      if (!gstinRegex.test(gstinValue)) {
         return res.status(400).json({
           success: false,
           message: 'Invalid GSTIN format'
@@ -42,7 +45,7 @@ exports.createClient = async (req, res) => {
        (client_name, contact_person, phone, email, gstin, address_line1, address_line2, city, state, pincode)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
-      [client_name, contact_person, phone, email, gstin, address_line1, address_line2, city, state, pincode]
+      [client_name, contact_person, phone, email, gstinValue, address_line1, address_line2, city, state, pincode]
     );
 
     res.status(201).json({
@@ -132,6 +135,11 @@ exports.updateClient = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
+
+    // Normalise GSTIN — treat empty string as null
+    if (updates.gstin !== undefined) {
+      updates.gstin = updates.gstin && updates.gstin.trim() !== '' ? updates.gstin.trim() : null;
+    }
 
     // Validate GSTIN format if provided
     if (updates.gstin) {

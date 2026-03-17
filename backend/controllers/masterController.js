@@ -412,13 +412,13 @@ exports.getAllGSTRates = async (req, res) => {
 // @access  Private
 exports.createGSTRate = async (req, res) => {
   try {
-    const { rate_name, rate_percentage } = req.body;
+    const { description, rate_name, rate_percentage } = req.body;
 
     const result = await query(
-      `INSERT INTO gst_rates_master (rate_name, rate_percentage)
-       VALUES ($1, $2)
+      `INSERT INTO gst_rates_master (description, rate_name, rate_percentage)
+       VALUES ($1, $2, $3)
        RETURNING *`,
-      [rate_name, rate_percentage]
+      [description || rate_name, description || rate_name, rate_percentage]
     );
 
     res.status(201).json({
@@ -442,14 +442,17 @@ exports.createGSTRate = async (req, res) => {
 exports.updateGSTRate = async (req, res) => {
   try {
     const { id } = req.params;
-    const { rate_name, rate_percentage } = req.body;
+    const { description, rate_name, rate_percentage } = req.body;
+    const nameValue = description || rate_name || null;
 
     const result = await query(
       `UPDATE gst_rates_master
-       SET rate_percentage = COALESCE($1, rate_percentage)
-       WHERE id = $2
+       SET rate_percentage = COALESCE($1, rate_percentage),
+           description     = COALESCE($2, description),
+           rate_name       = COALESCE($2, rate_name)
+       WHERE id = $3
        RETURNING *`,
-      [rate_percentage, id]
+      [rate_percentage, nameValue, id]
     );
 
     if (result.rows.length === 0) {

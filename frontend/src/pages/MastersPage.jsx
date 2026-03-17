@@ -651,17 +651,16 @@ const MastersPage = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      GSTIN <span className="text-red-500">*</span>
+                      GSTIN <span className="text-gray-400 text-xs font-normal">(optional)</span>
                     </label>
-                    <input 
-                      type="text" 
-                      name="gstin" 
-                      defaultValue={editingItem?.gstin} 
-                      required
+                    <input
+                      type="text"
+                      name="gstin"
+                      defaultValue={editingItem?.gstin}
                       pattern="[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}"
                       maxLength={15}
                       placeholder="27AABCU9603R1ZM"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" 
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                     />
                     <p className="text-xs text-gray-500 mt-1">15 characters (e.g., 27AABCU9603R1ZM)</p>
                   </div>

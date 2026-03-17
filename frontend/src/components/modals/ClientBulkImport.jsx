@@ -100,12 +100,12 @@ const ClientBulkImport = ({ isOpen, onClose, onImportComplete }) => {
       }
     }
     
-    if (!row['GSTIN'] || row['GSTIN'].toString().trim() === '') {
-      errors.push(`Row ${index}: GSTIN is required`);
-    } else {
+    // GSTIN is optional — only validate format if provided
+    if (row['GSTIN'] && row['GSTIN'].toString().trim() !== '') {
       const gstin = row['GSTIN'].toString().trim();
-      if (gstin.length !== 15) {
-        errors.push(`Row ${index}: GSTIN must be exactly 15 characters`);
+      const gstinRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+      if (!gstinRegex.test(gstin)) {
+        errors.push(`Row ${index}: GSTIN format is invalid (e.g. 27AABCU9603R1ZM)`);
       }
     }
     
@@ -173,7 +173,7 @@ const ClientBulkImport = ({ isOpen, onClose, onImportComplete }) => {
           contact_person: row['Contact Person']?.toString().trim() || '',
           phone: row['Phone']?.toString().replace(/[^0-9]/g, '') || '',
           email: row['Email']?.toString().trim() || null,
-          gstin: row['GSTIN']?.toString().trim() || '',
+          gstin: row['GSTIN']?.toString().trim() || null,
           address_line1: row['Address Line 1']?.toString().trim() || null,
           address_line2: row['Address Line 2']?.toString().trim() || null,
           city: row['City']?.toString().trim() || null,
@@ -183,20 +183,32 @@ const ClientBulkImport = ({ isOpen, onClose, onImportComplete }) => {
 
         // Import clients
         const response = await clientAPI.bulkImport({ clients });
-        
+        const resultData = response.data.data || {};
+
+        const successCount = resultData.imported ?? 0;
+        const errorRows   = resultData.errors   ?? [];
+        const dupRows     = resultData.duplicates ?? [];
+
+        // Combine errors + duplicates into readable strings
+        const errorMessages = [
+          ...errorRows.map(e => `Row ${e.row} (${e.client_name}): ${e.error}`),
+          ...dupRows.map(d => `Row ${d.row} (${d.client_name}): Duplicate — already exists`)
+        ];
+        const failedCount = errorRows.length + dupRows.length;
+
         setResults({
-          success: response.data.results?.successful || clients.length,
-          failed: response.data.results?.failed || 0,
-          errors: response.data.results?.errors || []
+          success: successCount,
+          failed: failedCount,
+          errors: errorMessages
         });
 
-        if (response.data.results?.failed === 0) {
-          toast.success(`Successfully imported ${clients.length} client(s)`);
+        if (failedCount === 0) {
+          toast.success(`Successfully imported ${successCount} client(s)`);
           setTimeout(() => {
             onImportComplete();
           }, 1500);
         } else {
-          toast.warning(`Imported ${response.data.results?.successful} client(s), ${response.data.results?.failed} failed`);
+          toast(`Imported ${successCount} client(s), ${failedCount} skipped/failed`, { icon: '⚠️' });
         }
 
       } catch (error) {
@@ -235,8 +247,8 @@ const ClientBulkImport = ({ isOpen, onClose, onImportComplete }) => {
           <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
             <li>Download the Excel template below</li>
             <li>Fill in the client details following the format</li>
-            <li><strong>Required fields:</strong> Client Name, Contact Person, Phone, GSTIN</li>
-            <li><strong>Optional fields:</strong> Email, Address Line 1, Address Line 2, City, State, Pincode</li>
+            <li><strong>Required fields:</strong> Client Name, Contact Person, Phone</li>
+            <li><strong>Optional fields:</strong> GSTIN, Email, Address Line 1, Address Line 2, City, State, Pincode</li>
             <li>Upload the completed file and click Import</li>
           </ol>
         </div>

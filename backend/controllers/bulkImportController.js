@@ -46,7 +46,10 @@ exports.bulkImportClients = async (req, res) => {
           continue;
         }
 
-        // Validate GSTIN if provided
+        // Normalise GSTIN — treat empty string as null
+        row.gstin = row.gstin && row.gstin.trim() !== '' ? row.gstin.trim() : null;
+
+        // Validate GSTIN format if provided
         if (row.gstin && !gstinRegex.test(row.gstin)) {
           errors.push({
             row: rowNumber,

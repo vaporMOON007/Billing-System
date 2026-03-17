@@ -99,6 +99,7 @@ export const clientAPI = {
   getClientById: (id) => api.get(`/clients/${id}`),
   updateClient: (id, clientData) => api.put(`/clients/${id}`, clientData),
   deleteClient: (id) => api.delete(`/clients/${id}`),
+  bulkImport: (data) => api.post('/clients/bulk-import', data),
 };
 
 // ============================================================================

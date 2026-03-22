@@ -108,7 +108,9 @@ const MastersPage = () => {
       loadData();
     } catch (error) {
       console.error('Failed to delete:', error);
-      toast.error('Failed to delete item');
+      // Show the actual reason from the backend (e.g. "in use in X bills")
+      const msg = error.response?.data?.message || 'Failed to delete item';
+      toast.error(msg);
     } finally {
       setDeleting(false);
     }
@@ -490,8 +492,10 @@ const MastersPage = () => {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">GSTIN <span className="text-red-500">*</span></label>
-                  <input type="text" name="gstin" defaultValue={editingItem?.gstin} required maxLength={15}
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    GSTIN <span className="text-gray-400 text-xs font-normal">(optional)</span>
+                  </label>
+                  <input type="text" name="gstin" defaultValue={editingItem?.gstin} maxLength={15}
                     pattern="[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}"
                     title="15-character GSTIN (e.g. 22AAAAA0000A1Z5)"
                     placeholder="22AAAAA0000A1Z5"
@@ -499,8 +503,10 @@ const MastersPage = () => {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">PAN <span className="text-red-500">*</span></label>
-                  <input type="text" name="pan" defaultValue={editingItem?.pan} required maxLength={10}
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    PAN <span className="text-gray-400 text-xs font-normal">(optional)</span>
+                  </label>
+                  <input type="text" name="pan" defaultValue={editingItem?.pan} maxLength={10}
                     pattern="[A-Z]{5}[0-9]{4}[A-Z]{1}"
                     title="10-character PAN (e.g. ABCDE1234F)"
                     placeholder="ABCDE1234F"
@@ -607,10 +613,9 @@ const MastersPage = () => {
                       Contact Person <span className="text-red-500">*</span>
                     </label>
                     <input 
-                      type="text" 
-                      name="contact_person" 
-                      defaultValue={editingItem?.contact_person} 
-                      required
+                      type="text"
+                      name="contact_person"
+                      defaultValue={editingItem?.contact_person}
                       placeholder="Enter contact person name"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" 
                     />

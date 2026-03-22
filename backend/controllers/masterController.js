@@ -27,17 +27,21 @@ exports.createHeader = async (req, res) => {
       upi_id
     } = req.body;
 
+    // Normalise optional fields — treat empty string as null
+    const gstinValue = gstin && gstin.trim() !== '' ? gstin.trim() : null;
+    const panValue   = pan   && pan.trim()   !== '' ? pan.trim()   : null;
+
     await client.query('BEGIN');
 
     // Insert header
     const headerResult = await client.query(
-      `INSERT INTO header_master 
-       (company_name, proprietor_name, address_line1, address_line2, city, state, 
+      `INSERT INTO header_master
+       (company_name, proprietor_name, address_line1, address_line2, city, state,
         pincode, phone, email, gstin, pan, bill_prefix, upi_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING *`,
       [company_name, proprietor_name, address_line1, address_line2, city, state,
-       pincode, phone, email, gstin, pan, bill_prefix || company_name.substring(0, 3).toUpperCase(), upi_id]
+       pincode, phone, email, gstinValue, panValue, bill_prefix || company_name.substring(0, 3).toUpperCase(), upi_id]
     );
 
     const header = headerResult.rows[0];
@@ -153,6 +157,14 @@ exports.updateHeader = async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
 
+    // Normalise optional fields — treat empty string as null so they clear cleanly
+    if (updates.gstin !== undefined) {
+      updates.gstin = updates.gstin && updates.gstin.trim() !== '' ? updates.gstin.trim() : null;
+    }
+    if (updates.pan !== undefined) {
+      updates.pan = updates.pan && updates.pan.trim() !== '' ? updates.pan.trim() : null;
+    }
+
     const result = await client.query(
       `UPDATE header_master
        SET company_name = COALESCE($1, company_name),
@@ -163,8 +175,8 @@ exports.updateHeader = async (req, res) => {
            pincode = COALESCE($6, pincode),
            phone = COALESCE($7, phone),
            email = COALESCE($8, email),
-           gstin = COALESCE($9, gstin),
-           pan = COALESCE($10, pan),
+           gstin = $9,
+           pan = $10,
            bill_prefix = COALESCE($11, bill_prefix),
            upi_id = COALESCE($12, upi_id),
            updated_at = CURRENT_TIMESTAMP
@@ -183,20 +195,22 @@ exports.updateHeader = async (req, res) => {
       });
     }
 
-    // Update bank details in header_bank_details if any bank field is provided
+    // Upsert bank details — INSERT if no row exists yet, UPDATE if it does
     if (updates.bank_name !== undefined || updates.account_number !== undefined ||
         updates.ifsc_code !== undefined || updates.branch_name !== undefined ||
         updates.account_holder_name !== undefined) {
       await client.query(
-        `UPDATE header_bank_details
-         SET bank_name = COALESCE($1, bank_name),
-             account_holder_name = COALESCE($2, account_holder_name),
-             account_number = COALESCE($3, account_number),
-             ifsc_code = COALESCE($4, ifsc_code),
-             branch_name = COALESCE($5, branch_name)
-         WHERE header_id = $6`,
-        [updates.bank_name, updates.account_holder_name, updates.account_number,
-         updates.ifsc_code, updates.branch_name, id]
+        `INSERT INTO header_bank_details
+           (header_id, bank_name, account_holder_name, account_number, ifsc_code, branch_name)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (header_id) DO UPDATE SET
+           bank_name           = COALESCE(EXCLUDED.bank_name,           header_bank_details.bank_name),
+           account_holder_name = COALESCE(EXCLUDED.account_holder_name, header_bank_details.account_holder_name),
+           account_number      = COALESCE(EXCLUDED.account_number,      header_bank_details.account_number),
+           ifsc_code           = COALESCE(EXCLUDED.ifsc_code,           header_bank_details.ifsc_code),
+           branch_name         = COALESCE(EXCLUDED.branch_name,         header_bank_details.branch_name)`,
+        [id, updates.bank_name, updates.account_holder_name, updates.account_number,
+         updates.ifsc_code, updates.branch_name]
       );
     }
 
@@ -354,6 +368,18 @@ exports.deleteParticular = async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Check if this service is used in any bill
+    const usageCheck = await query(
+      'SELECT COUNT(*) AS cnt FROM bill_services WHERE particulars_id = $1',
+      [id]
+    );
+    if (parseInt(usageCheck.rows[0].cnt) > 0) {
+      return res.status(409).json({
+        success: false,
+        message: `Cannot delete — this service is used in ${usageCheck.rows[0].cnt} bill(s). Remove it from those bills first.`
+      });
+    }
+
     const result = await query(
       'DELETE FROM particulars_master WHERE id = $1 RETURNING id',
       [id]
@@ -372,6 +398,13 @@ exports.deleteParticular = async (req, res) => {
     });
   } catch (error) {
     console.error('Delete particular error:', error);
+    // FK violation fallback
+    if (error.code === '23503') {
+      return res.status(409).json({
+        success: false,
+        message: 'Cannot delete — this service is referenced in existing bills.'
+      });
+    }
     res.status(500).json({
       success: false,
       message: 'Failed to delete service',
@@ -484,6 +517,18 @@ exports.deleteGSTRate = async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Check if this GST rate is used in any bill
+    const usageCheck = await query(
+      'SELECT COUNT(*) AS cnt FROM bill_services WHERE gst_rate_id = $1',
+      [id]
+    );
+    if (parseInt(usageCheck.rows[0].cnt) > 0) {
+      return res.status(409).json({
+        success: false,
+        message: `Cannot delete — this GST rate is used in ${usageCheck.rows[0].cnt} bill line(s). Remove it from those bills first.`
+      });
+    }
+
     const result = await query(
       'DELETE FROM gst_rates_master WHERE id = $1 RETURNING id',
       [id]
@@ -502,6 +547,13 @@ exports.deleteGSTRate = async (req, res) => {
     });
   } catch (error) {
     console.error('Delete GST rate error:', error);
+    // FK violation fallback
+    if (error.code === '23503') {
+      return res.status(409).json({
+        success: false,
+        message: 'Cannot delete — this GST rate is referenced in existing bills.'
+      });
+    }
     res.status(500).json({
       success: false,
       message: 'Failed to delete GST rate',
@@ -612,6 +664,18 @@ exports.deletePaymentTerm = async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Check if this payment term is used in any bill
+    const usageCheck = await query(
+      'SELECT COUNT(*) AS cnt FROM bills WHERE payment_term_id = $1',
+      [id]
+    );
+    if (parseInt(usageCheck.rows[0].cnt) > 0) {
+      return res.status(409).json({
+        success: false,
+        message: `Cannot delete — this payment term is used in ${usageCheck.rows[0].cnt} bill(s). Update those bills first.`
+      });
+    }
+
     const result = await query(
       'DELETE FROM payment_terms_master WHERE id = $1 RETURNING id',
       [id]
@@ -630,6 +694,13 @@ exports.deletePaymentTerm = async (req, res) => {
     });
   } catch (error) {
     console.error('Delete payment term error:', error);
+    // FK violation fallback
+    if (error.code === '23503') {
+      return res.status(409).json({
+        success: false,
+        message: 'Cannot delete — this payment term is referenced in existing bills.'
+      });
+    }
     res.status(500).json({
       success: false,
       message: 'Failed to delete payment term',

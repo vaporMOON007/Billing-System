@@ -11,6 +11,7 @@ router.get('/headers', masterController.getAllHeaders);
 router.get('/headers/:id', masterController.getHeaderById);
 router.post('/headers', masterController.createHeader);
 router.put('/headers/:id', masterController.updateHeader);
+router.delete('/headers/:id', masterController.deleteHeader);
 
 // Particulars (Services)
 router.get('/particulars', masterController.getAllParticulars);

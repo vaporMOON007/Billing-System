@@ -70,8 +70,23 @@ const MastersPage = () => {
     setShowModal(true);
   };
 
-  const handleEdit = (item) => {
-    setEditingItem(item);
+  const handleEdit = async (item) => {
+    // For companies, fetch full record including bank details from getHeaderById
+    if (activeTab === 'company') {
+      try {
+        const res = await masterAPI.getHeaderById(item.id);
+        const full = res.data.data;
+        // Flatten bank_details into the top level so form fields like
+        // editingItem?.bank_name / account_number etc. work directly
+        setEditingItem({ ...full, ...(full.bank_details || {}) });
+      } catch (err) {
+        console.error('Failed to load company details:', err);
+        toast.error('Failed to load company details');
+        return;
+      }
+    } else {
+      setEditingItem(item);
+    }
     setShowModal(true);
   };
 
@@ -547,30 +562,30 @@ const MastersPage = () => {
 
               {/* Bank Details Section */}
               <div className="pt-4 border-t">
-                <h4 className="text-sm font-semibold text-gray-700 mb-3">Bank Details</h4>
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">Bank Details <span className="text-gray-400 text-xs font-normal">(optional)</span></h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Bank Name <span className="text-red-500">*</span></label>
-                    <input type="text" name="bank_name" defaultValue={editingItem?.bank_name} required
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Bank Name</label>
+                    <input type="text" name="bank_name" defaultValue={editingItem?.bank_name}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Account Holder <span className="text-red-500">*</span></label>
-                    <input type="text" name="account_holder_name" defaultValue={editingItem?.account_holder_name} required
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Account Holder</label>
+                    <input type="text" name="account_holder_name" defaultValue={editingItem?.account_holder_name}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Account Number <span className="text-red-500">*</span></label>
-                    <input type="text" name="account_number" defaultValue={editingItem?.account_number} required
-                      pattern="[0-9]{9,18}" minLength={9} maxLength={18}
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Account Number</label>
+                    <input type="text" name="account_number" defaultValue={editingItem?.account_number}
+                      pattern="[0-9]{9,18}" maxLength={18}
                       title="Account number must be 9–18 digits"
                       placeholder="Digits only, 9–18 characters"
                       onInput={(e) => { e.target.value = e.target.value.replace(/[^0-9]/g, ''); }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">IFSC Code <span className="text-red-500">*</span></label>
-                    <input type="text" name="ifsc_code" defaultValue={editingItem?.ifsc_code} required maxLength={11}
+                    <label className="block text-sm font-medium text-gray-700 mb-1">IFSC Code</label>
+                    <input type="text" name="ifsc_code" defaultValue={editingItem?.ifsc_code} maxLength={11}
                       pattern="[A-Z]{4}0[A-Z0-9]{6}"
                       title="IFSC format: 4 letters + 0 + 6 alphanumeric (e.g. HDFC0001234)"
                       placeholder="HDFC0001234"
@@ -578,8 +593,8 @@ const MastersPage = () => {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
                   </div>
                   <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Branch Name <span className="text-red-500">*</span></label>
-                    <input type="text" name="branch_name" defaultValue={editingItem?.branch_name} required
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Branch Name</label>
+                    <input type="text" name="branch_name" defaultValue={editingItem?.branch_name}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
                   </div>
                 </div>

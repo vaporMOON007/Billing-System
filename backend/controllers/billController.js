@@ -61,13 +61,14 @@ exports.createBill = async (req, res) => {
       const service = services[i];
       await client.query(
         `INSERT INTO bill_services
-         (bill_id, sr_no, particulars_id, particulars_other, service_date, service_year, amount, gst_rate_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+         (bill_id, sr_no, particulars_id, particulars_other, description, service_date, service_year, amount, gst_rate_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           bill.id,
           i + 1,
           service.particulars_id,
           service.particulars_other || null,
+          service.description || null,
           service.service_date || null,
           service.service_year || null,
           service.amount,
@@ -524,13 +525,14 @@ exports.updateBill = async (req, res) => {
         const service = services[i];
         await client.query(
           `INSERT INTO bill_services
-           (bill_id, sr_no, particulars_id, particulars_other, service_date, service_year, amount, gst_rate_id)
-           VALUES ($1, $2, $3, $4, $5, $6, ROUND($7::numeric, 2), $8)`,
+           (bill_id, sr_no, particulars_id, particulars_other, description, service_date, service_year, amount, gst_rate_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, ROUND($8::numeric, 2), $9)`,
           [
             id,
             i + 1,
             service.particulars_id,
             service.particulars_other || null,
+            service.description || null,
             service.service_date || null,
             service.service_year || null,
             service.amount,
@@ -1207,7 +1209,7 @@ exports.addServiceToBill = async (req, res) => {
   const client = await require('../config/database').pool.connect();
   try {
     const { billId } = req.params;
-    const { particulars_id, particulars_other, service_date, service_year, amount, gst_rate_id } = req.body;
+    const { particulars_id, particulars_other, description, service_date, service_year, amount, gst_rate_id } = req.body;
 
     await client.query('BEGIN');
 
@@ -1231,10 +1233,10 @@ exports.addServiceToBill = async (req, res) => {
     // Insert service — gst_amount and total_amount are computed by DB triggers
     const serviceResult = await client.query(
       `INSERT INTO bill_services
-       (bill_id, sr_no, particulars_id, particulars_other, service_date, service_year, amount, gst_rate_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+       (bill_id, sr_no, particulars_id, particulars_other, description, service_date, service_year, amount, gst_rate_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
       [billId, nextSr, particulars_id, particulars_other || null,
-       service_date || null, service_year || null, amount, gst_rate_id]
+       description || null, service_date || null, service_year || null, amount, gst_rate_id]
     );
 
     await client.query('COMMIT');
@@ -1529,10 +1531,10 @@ exports.mergeBills = async (req, res) => {
       for (const svc of svcResult.rows) {
         await client.query(
           `INSERT INTO bill_services
-           (bill_id, sr_no, particulars_id, particulars_other, service_date, service_year, amount, gst_rate_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+           (bill_id, sr_no, particulars_id, particulars_other, description, service_date, service_year, amount, gst_rate_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
           [mergedBill.id, srNo++, svc.particulars_id, svc.particulars_other,
-           svc.service_date, svc.service_year, svc.amount, svc.gst_rate_id]
+           svc.description || null, svc.service_date, svc.service_year, svc.amount, svc.gst_rate_id]
         );
       }
     }

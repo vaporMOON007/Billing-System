@@ -1159,7 +1159,10 @@ const PrintBillPage = () => {
                             {service.sr_no}
                           </td>
                           <td className="border border-gray-300 px-4 py-2 text-sm">
-                            {service.particulars_other || service.service_name}
+                            <div>{service.particulars_other || service.service_name}</div>
+                            {service.description && (
+                              <div className="text-xs text-gray-500 italic mt-0.5">{service.description}</div>
+                            )}
                           </td>
                           <td className="border border-gray-300 px-4 py-2 text-sm">
                             {formatDate(service.service_date)}

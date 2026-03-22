@@ -33,24 +33,39 @@ const ServiceRow = ({
         {index + 1}
       </td>
 
-      {/* Particulars */}
+      {/* Particulars + Description side by side */}
       <td className="px-4 py-3">
-        <Dropdown
-          value={service.particulars_id}
-          onChange={(value) => handleFieldChange('particulars_id', value)}
-          options={particularsOptions}
-          placeholder="Select Service"
-          required
-        />
-        {service.particulars_id === '11' && (
-          <input
-            type="text"
-            value={service.particulars_other || ''}
-            onChange={(e) => handleFieldChange('particulars_other', e.target.value)}
-            placeholder="Specify service..."
-            className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
-          />
-        )}
+        <div className="flex gap-2 items-start">
+          {/* Left: service picker */}
+          <div className="flex-1 min-w-0">
+            <Dropdown
+              value={service.particulars_id}
+              onChange={(value) => handleFieldChange('particulars_id', value)}
+              options={particularsOptions}
+              placeholder="Select Service"
+              required
+            />
+            {service.particulars_id === '11' && (
+              <input
+                type="text"
+                value={service.particulars_other || ''}
+                onChange={(e) => handleFieldChange('particulars_other', e.target.value)}
+                placeholder="Specify service..."
+                className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+              />
+            )}
+          </div>
+          {/* Right: description */}
+          <div className="w-2/5 min-w-0">
+            <textarea
+              rows={2}
+              value={service.description || ''}
+              onChange={(e) => handleFieldChange('description', e.target.value)}
+              placeholder="Description (optional)"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-xs text-gray-600 resize-none"
+            />
+          </div>
+        </div>
       </td>
 
       {/* Date */}

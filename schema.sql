@@ -196,9 +196,10 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash   VARCHAR(255),
     full_name       VARCHAR(200),
     role            VARCHAR(50)  DEFAULT 'CA'
-                        CHECK (role IN ('CA', 'EMPLOYEE', 'ADMIN', 'VIEWER')),
+                        CHECK (role IN ('CA', 'EMPLOYEE', 'SUPERADMIN')),
     phone           VARCHAR(15),
     is_active       BOOLEAN      DEFAULT TRUE,
+    is_approved     BOOLEAN      NOT NULL DEFAULT false,
     last_login      TIMESTAMP,
     created_at      TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
@@ -443,6 +444,7 @@ CREATE TABLE IF NOT EXISTS bill_services (
     sr_no             INTEGER       NOT NULL,
     particulars_id    INTEGER       NOT NULL REFERENCES particulars_master(id),
     particulars_other TEXT,
+    description       TEXT,
     service_date      DATE,
     service_year      VARCHAR(10),
     amount            NUMERIC(15,2) NOT NULL,
@@ -471,14 +473,20 @@ CREATE OR REPLACE TRIGGER after_insert_update_delete_bill_services
 -- 13. BILL PAYMENTS
 -- ----------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS bill_payments (
-    id            SERIAL PRIMARY KEY,
-    bill_id       INTEGER       NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
-    payment_date  DATE          NOT NULL,
-    amount_paid   NUMERIC(15,2) NOT NULL,
-    notes         TEXT,
-    recorded_by   INTEGER       REFERENCES users(id),
-    created_at    TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
-    payment_mode  VARCHAR(10)   DEFAULT 'NEFT',
+    id                      SERIAL PRIMARY KEY,
+    bill_id                 INTEGER       NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
+    payment_date            DATE          NOT NULL,
+    amount_paid             NUMERIC(15,2) NOT NULL,
+    notes                   TEXT,
+    recorded_by             INTEGER       REFERENCES users(id),
+    created_at              TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+    payment_mode            VARCHAR(10)   DEFAULT 'NEFT'
+                                CHECK (payment_mode IN ('NEFT','UPI','CASH','CHEQUE')),
+    cheque_no               VARCHAR(50),
+    utr                     VARCHAR(100),
+    cash_collected_by       VARCHAR(150),
+    received_in_account_id  INTEGER       REFERENCES header_bank_details(header_id) ON DELETE SET NULL,
     CONSTRAINT bill_payments_amount_paid_check CHECK (amount_paid > 0)
 );
 
@@ -579,14 +587,15 @@ ON CONFLICT DO NOTHING;
 
 -- Default admin user  (password: admin123)
 -- CHANGE THIS PASSWORD immediately after first login!
-INSERT INTO users (username, email, password_hash, full_name, phone, role)
+INSERT INTO users (username, email, password_hash, full_name, phone, role, is_approved)
 VALUES (
     'admin',
     'admin@billingapp.com',
     '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi',
     'Administrator',
     '9999999999',
-    'CA'
+    'CA',
+    true
 ) ON CONFLICT (username) DO NOTHING;
 
 -- ================================================================

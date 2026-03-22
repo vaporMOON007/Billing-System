@@ -43,6 +43,15 @@ exports.login = async (req, res) => {
       });
     }
 
+    // Block unapproved users (except SUPERADMIN — those are added manually and always approved)
+    if (!user.is_approved) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account is pending approval by an administrator.',
+        code: 'PENDING_APPROVAL'
+      });
+    }
+
     // Generate token
     const token = jwt.sign(
       { id: user.id, username: user.username, role: user.role },
@@ -194,22 +203,18 @@ exports.register = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    // Insert new user
+    // Determine if this is an admin-created user (authenticated request) or self-registration
+    const isAdminCreate = !!req.user;
+
+    // Insert new user — is_approved = true if created by admin, false if self-registered
     const result = await query(
-      `INSERT INTO users (username, email, password_hash, full_name, phone, role)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, username, email, full_name, phone, role`,
-      [username, email, passwordHash, full_name, phone, role || 'EMPLOYEE']
+      `INSERT INTO users (username, email, password_hash, full_name, phone, role, is_approved)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, username, email, full_name, phone, role, is_approved`,
+      [username, email, passwordHash, full_name, phone, role || 'EMPLOYEE', isAdminCreate]
     );
 
     const user = result.rows[0];
-
-    // Generate token
-    const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '7d' }
-    );
 
     // Log with best-effort: performedBy is the requesting user (if authenticated) or null (self-register)
     logActivity({
@@ -217,24 +222,32 @@ exports.register = async (req, res) => {
       action: 'CREATE_USER',
       entityType: 'USER',
       entityId: user.id,
-      description: `Created user "${user.username}" with role ${user.role}`,
-      metadata: { new_user_id: user.id, username: user.username, role: user.role },
+      description: `Created user "${user.username}" with role ${user.role}${isAdminCreate ? ' (admin-created, auto-approved)' : ' (self-registered, pending approval)'}`,
+      metadata: { new_user_id: user.id, username: user.username, role: user.role, is_approved: isAdminCreate },
     });
 
+    // If admin is creating the user, return token so they can log in immediately
+    if (isAdminCreate) {
+      const token = jwt.sign(
+        { id: user.id, username: user.username, role: user.role },
+        process.env.JWT_SECRET || 'your-secret-key',
+        { expiresIn: '7d' }
+      );
+      return res.status(201).json({
+        success: true,
+        message: 'User created successfully',
+        data: {
+          user: { id: user.id, username: user.username, email: user.email, full_name: user.full_name, phone: user.phone, role: user.role },
+          token
+        }
+      });
+    }
+
+    // Self-registration: do NOT return a token — account must be approved first
     res.status(201).json({
       success: true,
-      message: 'User registered successfully',
-      data: {
-        user: {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          full_name: user.full_name,
-          phone: user.phone,
-          role: user.role
-        },
-        token
-      }
+      message: 'Registration successful! Your account is pending approval by an administrator. You will be able to log in once approved.',
+      pending_approval: true
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -364,6 +377,7 @@ exports.getAllUsers = async (req, res) => {
     const result = await query(
       `SELECT id, username, email, full_name, phone, role, is_active, created_at
        FROM users
+       WHERE is_approved = true
        ORDER BY created_at ASC`
     );
     res.json({ success: true, data: result.rows });
@@ -454,5 +468,102 @@ exports.adminResetPassword = async (req, res) => {
   } catch (error) {
     console.error('Admin reset password error:', error);
     res.status(500).json({ success: false, message: 'Failed to reset password', error: error.message });
+  }
+};
+
+// ============================================================================
+// PENDING USER APPROVAL (SUPERADMIN only)
+// ============================================================================
+
+// @desc    Get users pending approval
+// @route   GET /api/auth/users/pending
+// @access  Private (SUPERADMIN only)
+exports.getPendingUsers = async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT id, username, email, full_name, phone, role, created_at
+       FROM users
+       WHERE is_approved = false
+       ORDER BY created_at ASC`
+    );
+    res.json({ success: true, count: result.rows.length, data: result.rows });
+  } catch (error) {
+    console.error('Get pending users error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch pending users', error: error.message });
+  }
+};
+
+// @desc    Get count of users pending approval
+// @route   GET /api/auth/users/pending-count
+// @access  Private (SUPERADMIN only)
+exports.getPendingCount = async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT COUNT(*) AS count FROM users WHERE is_approved = false`
+    );
+    res.json({ success: true, count: parseInt(result.rows[0].count) });
+  } catch (error) {
+    console.error('Get pending count error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch pending count', error: error.message });
+  }
+};
+
+// @desc    Approve a pending user
+// @route   PUT /api/auth/users/:id/approve
+// @access  Private (SUPERADMIN only)
+exports.approveUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await query(
+      `UPDATE users SET is_approved = true, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1 AND is_approved = false
+       RETURNING id, username, full_name, role`,
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found or already approved' });
+    }
+    const approved = result.rows[0];
+    logActivity({
+      performedBy: req.user.id,
+      action: 'APPROVE_USER',
+      entityType: 'USER',
+      entityId: approved.id,
+      description: `Approved user "${approved.username}" (${approved.role})`,
+      metadata: { target_user_id: approved.id, username: approved.username },
+    });
+    res.json({ success: true, message: 'User approved successfully', data: approved });
+  } catch (error) {
+    console.error('Approve user error:', error);
+    res.status(500).json({ success: false, message: 'Failed to approve user', error: error.message });
+  }
+};
+
+// @desc    Reject (delete) a pending user
+// @route   DELETE /api/auth/users/:id/reject
+// @access  Private (SUPERADMIN only)
+exports.rejectUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await query(
+      `DELETE FROM users WHERE id = $1 AND is_approved = false RETURNING id, username, full_name`,
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found or already approved (cannot reject approved users)' });
+    }
+    const rejected = result.rows[0];
+    logActivity({
+      performedBy: req.user.id,
+      action: 'REJECT_USER',
+      entityType: 'USER',
+      entityId: rejected.id,
+      description: `Rejected and removed pending user "${rejected.username}"`,
+      metadata: { target_user_id: rejected.id, username: rejected.username },
+    });
+    res.json({ success: true, message: 'User registration rejected' });
+  } catch (error) {
+    console.error('Reject user error:', error);
+    res.status(500).json({ success: false, message: 'Failed to reject user', error: error.message });
   }
 };

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Plus, Save, Eye, AlertTriangle, Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -18,12 +18,14 @@ const ServicesFormPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+  const editToastShownRef = useRef(false); // prevents double toast in React Strict Mode
   const [loading, setLoading] = useState(false);
   const [masterDataLoading, setMasterDataLoading] = useState(true);
   const [showClientModal, setShowClientModal] = useState(false);
   const [newClientName, setNewClientName] = useState('');
   const [editMode, setEditMode] = useState(false);
   const [editBillId, setEditBillId] = useState(null);
+  const [overrideMode, setOverrideMode] = useState(false); // SUPERADMIN override edit of finalized bills
 
   // Edit lock — prevents two users editing the same bill simultaneously
   const { lockStatus, acquireLock, releaseLock } = useEditLock(editBillId, user?.id);
@@ -156,53 +158,56 @@ const ServicesFormPage = () => {
     
   };
 
-  // Load bill data if editing
+  // Effect 1: runs ONCE when navigation state arrives — set mode flags and show toast
+  // useRef guard prevents the toast firing twice under React 18 Strict Mode
   useEffect(() => {
     if (location.state?.editBill) {
       const bill = location.state.editBill;
-      console.log("📝 Edit mode - Loading bill:", bill.bill_no);
-      
+      const isOverride = location.state?.overrideMode === true;
+
       setEditMode(true);
       setEditBillId(bill.id);
-      
-      // Wait for master data to load first
-      if (clients.length === 0) {
-        console.log("⏳ Waiting for clients to load...");
-        return; // Don't set form data yet
-      }
-      
-      console.log("✅ Clients loaded, setting form data");
-      console.log("📋 Bill client_id:", bill.client_id);
-      
-      // Check if client exists in loaded clients
-      const clientExists = clients.find(c => c.id === bill.client_id);
-      console.log("🔍 Client found in list:", clientExists?.client_name);
-      
-      // Set form data
-      setFormData({
-        header_id: bill.header_id.toString(),
-        bill_date: new Date(bill.bill_date),
-        payment_term_id: bill.payment_term_id.toString(),
-        client_id: bill.client_id?.toString() || '',
-        notes: bill.notes || '',
-      });
+      if (isOverride) setOverrideMode(true);
 
-      // Set services
-      if (bill.services && bill.services.length > 0) {
-        setServices(bill.services.map(s => ({
-          id: s.id,
-          particulars_id: s.particulars_id.toString(),
-          particulars_other: s.particulars_other || '',
-          service_date: s.service_date,
-          service_year: s.service_year,
-          amount: parseFloat(s.amount),
-          gst_rate_id: s.gst_rate_id.toString(),
-        })));
+      if (!editToastShownRef.current) {
+        editToastShownRef.current = true;
+        if (isOverride) {
+          toast('⚠️ Override Edit Mode — editing a finalized bill as SUPERADMIN', { icon: '⚠️', duration: 5000 });
+        } else {
+          toast.success('Editing DRAFT bill: ' + (bill.display_ref || bill.bill_no || `DRAFT-${bill.id}`));
+        }
       }
-
-      toast.success('Editing DRAFT bill: ' + (bill.display_ref || bill.bill_no || `DRAFT-${bill.id}`));
     }
-  }, [location.state, clients]); 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
+
+  // Effect 2: populate form fields once clients (master data) are loaded
+  useEffect(() => {
+    if (!location.state?.editBill || clients.length === 0) return;
+
+    const bill = location.state.editBill;
+
+    setFormData({
+      header_id: bill.header_id?.toString() || '',
+      bill_date: new Date(bill.bill_date),
+      payment_term_id: bill.payment_term_id?.toString() || '',
+      client_id: bill.client_id?.toString() || '',
+      notes: bill.notes || '',
+    });
+
+    if (bill.services && bill.services.length > 0) {
+      setServices(bill.services.map(s => ({
+        id: s.id,
+        particulars_id: s.particulars_id?.toString() || '',
+        particulars_other: s.particulars_other || '',
+        description: s.description || '',
+        service_date: s.service_date,
+        service_year: s.service_year,
+        amount: parseFloat(s.amount),
+        gst_rate_id: s.gst_rate_id?.toString() || '',
+      })));
+    }
+  }, [location.state, clients]);
 
   const handleAddService = () => {
     setServices([
@@ -408,7 +413,8 @@ const ServicesFormPage = () => {
           notes: formData.notes,
           services: services.map((s) => ({
             particulars_id: parseInt(s.particulars_id),
-            particulars_other: s.particulars_other,
+            particulars_other: s.particulars_other || null,
+            description: s.description || null,
             service_date: s.service_date,
             service_year: s.service_year,
             amount: parseFloat(s.amount),
@@ -416,12 +422,12 @@ const ServicesFormPage = () => {
           })),
         };
 
-        await billAPI.updateBill(editBillId, billData);
-        
+        await billAPI.updateBill(editBillId, billData, overrideMode);
+
         // NEW: Show animation
         setShowSuccessAnimation(true);
         setTimeout(() => {
-          toast.success('Bill updated successfully!');
+          toast.success(overrideMode ? 'Bill override edit saved!' : 'Bill updated successfully!');
           setShowSuccessAnimation(false);
           navigate('/print-bill');
         }, 1000);
@@ -435,7 +441,8 @@ const ServicesFormPage = () => {
           notes: formData.notes,
           services: services.map((s) => ({
             particulars_id: parseInt(s.particulars_id),
-            particulars_other: s.particulars_other,
+            particulars_other: s.particulars_other || null,
+            description: s.description || null,
             service_date: s.service_date,
             service_year: s.service_year,
             amount: parseFloat(s.amount),
@@ -478,10 +485,23 @@ const ServicesFormPage = () => {
 
   return (
     <div className="p-6">
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">{editMode ? 'Edit Bill (DRAFT)' : 'Services Form'}</h1>
+      <h1 className="text-3xl font-bold text-gray-900 mb-6">
+        {overrideMode ? 'Override Edit (SUPERADMIN)' : editMode ? 'Edit Bill (DRAFT)' : 'Services Form'}
+      </h1>
+
+      {/* Override Edit Warning Banner */}
+      {overrideMode && (
+        <div className="flex items-center space-x-3 bg-amber-50 border border-amber-300 rounded-lg p-4 mb-4">
+          <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+          <div>
+            <p className="text-amber-800 text-sm font-semibold">SUPERADMIN Override Edit Mode</p>
+            <p className="text-amber-700 text-xs mt-0.5">You are editing a finalized bill. Changes will be saved and logged in the audit trail. The bill status will not change.</p>
+          </div>
+        </div>
+      )}
 
       {/* Edit Lock Warning Banner */}
-      {editMode && !lockStatus.canEdit && (
+      {editMode && !overrideMode && !lockStatus.canEdit && (
         <div className="flex items-center space-x-3 bg-red-50 border border-red-300 rounded-lg p-4 mb-4">
           <Lock className="w-5 h-5 text-red-500 flex-shrink-0" />
           <p className="text-red-700 text-sm font-medium">
@@ -680,15 +700,19 @@ const ServicesFormPage = () => {
           <div className="flex justify-end">
             <button
               type="submit"
-              disabled={loading || (editMode && !lockStatus.canEdit)}
-              className="flex items-center space-x-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={loading || (editMode && !overrideMode && !lockStatus.canEdit)}
+              className={`flex items-center space-x-2 px-6 py-3 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                overrideMode ? 'bg-amber-600 hover:bg-amber-700' : 'bg-green-600 hover:bg-green-700'
+              }`}
             >
               <Save className="w-5 h-5" />
               <span>
                 {loading
-                  ? (editMode ? 'Updating Bill...' : 'Creating Bill...')
-                  : (editMode && !lockStatus.canEdit)
+                  ? (overrideMode ? 'Saving Override...' : editMode ? 'Updating Bill...' : 'Creating Bill...')
+                  : (editMode && !overrideMode && !lockStatus.canEdit)
                   ? 'View Only (Locked)'
+                  : overrideMode
+                  ? 'Save Override Edit'
                   : (editMode ? 'Update Bill' : 'Create Bill')
                 }
               </span>

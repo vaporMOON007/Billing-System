@@ -61,7 +61,7 @@ function App() {
         <Toaster
           position="top-right"
           toastOptions={{
-            duration: 3000,
+            duration: 4000,
             style: {
               background: '#fff',
               color: '#363636',
@@ -81,7 +81,7 @@ function App() {
               },
             },
             error: {
-              duration: 4000,
+              duration: 5000,
               iconTheme: {
                 primary: '#ef4444',
                 secondary: '#fff',
@@ -103,7 +103,7 @@ function App() {
           <Route
             path="/dashboard"
             element={
-              <ProtectedRoute allowedRoles={['CA']}>
+              <ProtectedRoute allowedRoles={['CA', 'SUPERADMIN']}>
                 <Layout>
                   <Dashboard />
                 </Layout>
@@ -143,7 +143,7 @@ function App() {
           <Route
             path="/reports"
             element={
-              <ProtectedRoute allowedRoles={['CA']}>
+              <ProtectedRoute allowedRoles={['CA', 'SUPERADMIN']}>
                 <Layout>
                   <ReportsPage />
                 </Layout>
@@ -153,7 +153,7 @@ function App() {
           <Route
             path="/user-management"
             element={
-              <ProtectedRoute allowedRoles={['CA']}>
+              <ProtectedRoute allowedRoles={['CA', 'SUPERADMIN']}>
                 <Layout>
                   <UserManagementPage />
                 </Layout>
@@ -163,7 +163,7 @@ function App() {
           <Route
             path="/audit-log"
             element={
-              <ProtectedRoute allowedRoles={['CA']}>
+              <ProtectedRoute allowedRoles={['CA', 'SUPERADMIN']}>
                 <Layout>
                   <AuditLogPage />
                 </Layout>

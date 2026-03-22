@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { LogIn, Eye, EyeOff, AlertTriangle, AlertCircle } from 'lucide-react';
+import { LogIn, Eye, EyeOff, AlertTriangle, AlertCircle, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 
@@ -20,6 +20,7 @@ const Login = () => {
   const [lockedUntil, setLockedUntil] = useState(null);
   const [countdown, setCountdown] = useState(0);
   const [loginError, setLoginError] = useState('');
+  const [pendingApproval, setPendingApproval] = useState(false);
 
   // NEW: Check localStorage for existing lockout
   useEffect(() => {
@@ -86,35 +87,37 @@ const Login = () => {
     setLoading(true);
 
     try {
-      await login(credentials);
-      // Reset on success
-      setFailedAttempts(0);
-      localStorage.removeItem('failedLoginAttempts');
-      localStorage.removeItem('loginLockedUntil');
-      navigate('/services-form');
+      const result = await login(credentials);
+      if (result.success) {
+        // Reset on success
+        setFailedAttempts(0);
+        localStorage.removeItem('failedLoginAttempts');
+        localStorage.removeItem('loginLockedUntil');
+        navigate('/services-form');
+      } else if (result.code === 'PENDING_APPROVAL') {
+        // Show pending approval banner instead of counting as a failed attempt
+        setPendingApproval(true);
+        setLoginError('');
+      } else {
+        // Failed login
+        const newFailedAttempts = failedAttempts + 1;
+        setFailedAttempts(newFailedAttempts);
+        localStorage.setItem('failedLoginAttempts', newFailedAttempts.toString());
+        setLoginError(result.message || 'Login failed. Please try again.');
+
+        // Lock after 3 attempts
+        if (newFailedAttempts >= 3) {
+          const lockoutTime = Date.now() + 60000; // 1 minute
+          setLockedUntil(lockoutTime);
+          localStorage.setItem('loginLockedUntil', lockoutTime.toString());
+          toast.error('Too many failed attempts. Please wait 1 minute.', { duration: 3000 });
+        } else {
+          toast.error(`Login failed. ${3 - newFailedAttempts} attempts remaining.`, { duration: 3000 });
+        }
+      }
     } catch (error) {
       console.error('Login error:', error);
-      
-      // NEW: Enhanced error handling
-      const newFailedAttempts = failedAttempts + 1;
-      setFailedAttempts(newFailedAttempts);
-      localStorage.setItem('failedLoginAttempts', newFailedAttempts.toString());
-
-      if (error.response?.status === 401) {
-        setLoginError('Incorrect username or password. Please try again.');
-      } else {
-        setLoginError(error.response?.data?.message || 'Login failed. Please try again.');
-      }
-
-      // Lock after 3 attempts
-      if (newFailedAttempts >= 3) {
-        const lockoutTime = Date.now() + 60000; // 1 minute
-        setLockedUntil(lockoutTime);
-        localStorage.setItem('loginLockedUntil', lockoutTime.toString());
-        toast.error('Too many failed attempts. Please wait 1 minute.', { duration: 3000 });
-      } else {
-        toast.error(`Login failed. ${3 - newFailedAttempts} attempts remaining.`, { duration: 3000 });  
-      }
+      setLoginError('Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -146,6 +149,19 @@ const Login = () => {
                 </p>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Pending Approval Banner */}
+        {pendingApproval && (
+          <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <div className="flex items-center space-x-2 mb-2">
+              <Clock className="w-5 h-5 text-yellow-600 flex-shrink-0" />
+              <p className="text-sm font-semibold text-yellow-800">Account Pending Approval</p>
+            </div>
+            <p className="text-sm text-yellow-700">
+              Your account is awaiting approval by an administrator. You will be able to log in once your account is approved.
+            </p>
           </div>
         )}
 

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { UserPlus, Eye, EyeOff } from 'lucide-react';
+import { UserPlus, Eye, EyeOff, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { authAPI } from '../../services/api';
 
@@ -18,6 +18,7 @@ const Register = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [pendingApproval, setPendingApproval] = useState(false);
 
   const calculatePasswordStrength = (password) => {
     let strength = 0;
@@ -69,14 +70,14 @@ const Register = () => {
       });
 
       if (response.data.success) {
-        // Store token
-        localStorage.setItem('token', response.data.data.token);
-        localStorage.setItem('user', JSON.stringify(response.data.data.user));
-        
-        toast.success('Registration successful! Redirecting...');
-        setTimeout(() => {
-          navigate('/services-form');
-        }, 1000);
+        if (response.data.pending_approval) {
+          // Self-registration — show pending approval screen
+          setPendingApproval(true);
+        } else {
+          // Should not happen for self-registration, but handle gracefully
+          toast.success('Registration successful!');
+          navigate('/login');
+        }
       }
     } catch (error) {
       console.error('Registration error:', error);
@@ -85,6 +86,40 @@ const Register = () => {
       setLoading(false);
     }
   };
+
+  // Show pending approval screen after successful self-registration
+  if (pendingApproval) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100 py-12 px-4">
+        <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md text-center">
+          <div className="flex items-center justify-center mb-6">
+            <div className="w-20 h-20 bg-yellow-100 rounded-full flex items-center justify-center">
+              <Clock className="w-10 h-10 text-yellow-600" />
+            </div>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-3">Account Pending Approval</h2>
+          <p className="text-gray-600 mb-6">
+            Your account has been created successfully! An administrator needs to approve your registration before you can log in.
+            Please check back later or contact your administrator.
+          </p>
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6 text-left">
+            <p className="text-sm font-semibold text-yellow-800 mb-1">What happens next?</p>
+            <ul className="text-sm text-yellow-700 space-y-1 list-disc list-inside">
+              <li>Your administrator will review your registration</li>
+              <li>Once approved, you can log in with your credentials</li>
+              <li>If rejected, you will need to register again</li>
+            </ul>
+          </div>
+          <Link
+            to="/login"
+            className="block w-full bg-primary-600 text-white py-3 rounded-lg font-medium hover:bg-primary-700 transition-colors"
+          >
+            Back to Login
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100 py-12 px-4">

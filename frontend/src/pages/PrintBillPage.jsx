@@ -901,6 +901,24 @@ const PrintBillPage = () => {
                                 Unmerge
                               </button>
                             )}
+                            {/* Override Edit — SUPERADMIN only, for finalized/paid bills */}
+                            {user?.role === 'SUPERADMIN' && (bill.status === 'FINALIZED' || bill.status === 'PAID') && (
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    const res = await billAPI.getBillById(bill.id);
+                                    navigate('/services-form', { state: { editBill: res.data.data, overrideMode: true } });
+                                  } catch {
+                                    toast.error('Failed to load bill details');
+                                  }
+                                }}
+                                className="flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors"
+                                title="Override Edit (SUPERADMIN)"
+                              >
+                                <Edit className="w-3 h-3" />
+                                Override
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1026,6 +1044,16 @@ const PrintBillPage = () => {
                 >
                   <Edit className="w-4 h-4" />
                   <span>Edit Bill</span>
+                </button>
+                )}
+                {/* Override Edit — SUPERADMIN only, for finalized/paid bills */}
+                {user?.role === 'SUPERADMIN' && (selectedBill.status === 'FINALIZED' || selectedBill.status === 'PAID') && (
+                <button
+                  onClick={() => navigate('/services-form', { state: { editBill: selectedBill, overrideMode: true } })}
+                  className="flex items-center space-x-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
+                >
+                  <Edit className="w-4 h-4" />
+                  <span>Override Edit</span>
                 </button>
                 )}
                 {user?.role === 'CA' && selectedBill.status === 'FINALIZED' && (

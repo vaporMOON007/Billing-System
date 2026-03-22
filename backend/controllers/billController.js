@@ -480,18 +480,35 @@ exports.updateBill = async (req, res) => {
       }
     }
 
-    // Update bill header fields — only DRAFT bills can be updated
-    const billResult = await client.query(
-      `UPDATE bills
-       SET header_id = COALESCE($1, header_id),
-           client_id = COALESCE($2, client_id),
-           bill_date = COALESCE($3, bill_date),
-           due_date = COALESCE($4, due_date),
-           payment_term_id = COALESCE($5, payment_term_id),
-           notes = $6,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $7 AND status = 'DRAFT'
-       RETURNING *`,
+    const isSuperAdmin = req.user.role === 'SUPERADMIN';
+    const overrideEdit = req.body.override_edit === true && isSuperAdmin;
+
+    // SUPERADMIN can override-edit any bill regardless of status
+    // Regular users can only edit DRAFT bills
+    const updateQuery = overrideEdit
+      ? `UPDATE bills
+         SET header_id = COALESCE($1, header_id),
+             client_id = COALESCE($2, client_id),
+             bill_date = COALESCE($3, bill_date),
+             due_date = COALESCE($4, due_date),
+             payment_term_id = COALESCE($5, payment_term_id),
+             notes = $6,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $7
+         RETURNING *`
+      : `UPDATE bills
+         SET header_id = COALESCE($1, header_id),
+             client_id = COALESCE($2, client_id),
+             bill_date = COALESCE($3, bill_date),
+             due_date = COALESCE($4, due_date),
+             payment_term_id = COALESCE($5, payment_term_id),
+             notes = $6,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $7 AND status = 'DRAFT'
+         RETURNING *`;
+
+    // Update bill header fields
+    const billResult = await client.query(updateQuery,
       [header_id || null, client_id || null, bill_date || null,
        due_date || null, payment_term_id || null,
        notes !== undefined ? notes : null, id]
@@ -501,7 +518,9 @@ exports.updateBill = async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(404).json({
         success: false,
-        message: 'Bill not found or is not in DRAFT status'
+        message: overrideEdit
+          ? 'Bill not found'
+          : 'Bill not found or is not in DRAFT status'
       });
     }
 
@@ -566,11 +585,13 @@ exports.updateBill = async (req, res) => {
 
     logActivity({
       performedBy: req.user.id,
-      action: 'UPDATE_BILL',
+      action: overrideEdit ? 'OVERRIDE_EDIT_BILL' : 'UPDATE_BILL',
       entityType: 'BILL',
       entityId: parseInt(id),
-      description: `Updated bill #${updatedDisplayRef}`,
-      metadata: { bill_id: parseInt(id), bill_no: updatedDisplayRef },
+      description: overrideEdit
+        ? `[SUPERADMIN OVERRIDE] Edited finalized bill #${updatedDisplayRef}`
+        : `Updated bill #${updatedDisplayRef}`,
+      metadata: { bill_id: parseInt(id), bill_no: updatedDisplayRef, override_edit: overrideEdit || false },
     });
 
     // If services were replaced, diff old vs new and only log genuine adds/removals

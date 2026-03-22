@@ -70,7 +70,7 @@ export const billAPI = {
   getAllBills: (params) => api.get('/bills', { params }),
   getBillByNumber: (billNo) => api.get('/bills/search', { params: { bill_no: billNo } }),
   getBillById: (id) => api.get(`/bills/${id}`),
-  updateBill: (id, billData) => api.put(`/bills/${id}`, billData),
+  updateBill: (id, billData, override = false) => api.put(`/bills/${id}`, { ...billData, override_edit: override }),
   deleteBill: (id) => api.delete(`/bills/${id}`),
   finalizeBill: (id) => api.put(`/bills/${id}/finalize`),
   generatePDF: (id) => api.get(`/bills/${id}/pdf`, { responseType: 'blob' }),
@@ -142,10 +142,15 @@ export const masterAPI = {
 // USER MANAGEMENT ENDPOINTS (CA only)
 // ============================================================================
 export const userAPI = {
-  getAllUsers:       ()           => api.get('/auth/users'),
-  updateUser:        (id, data)   => api.put(`/auth/users/${id}`, data),
-  adminResetPassword:(id, data)   => api.put(`/auth/users/${id}/reset-password`, data),
-  createUser:        (data)       => api.post('/auth/register', data),
+  getAllUsers:         ()         => api.get('/auth/users'),
+  updateUser:         (id, data) => api.put(`/auth/users/${id}`, data),
+  adminResetPassword: (id, data) => api.put(`/auth/users/${id}/reset-password`, data),
+  createUser:         (data)     => api.post('/auth/register', data),
+  // Pending approval (SUPERADMIN only)
+  getPendingUsers:    ()         => api.get('/auth/users/pending'),
+  getPendingCount:    ()         => api.get('/auth/users/pending-count'),
+  approveUser:        (id)       => api.put(`/auth/users/${id}/approve`),
+  rejectUser:         (id)       => api.delete(`/auth/users/${id}/reject`),
 };
 
 // ============================================================================

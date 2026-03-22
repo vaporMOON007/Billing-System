@@ -37,9 +37,13 @@ export const AuthProvider = ({ children }) => {
       toast.success('Login successful!');
       return { success: true };
     } catch (error) {
+      const code = error.response?.data?.code;
       const message = error.response?.data?.message || 'Login failed';
-      toast.error(message);
-      return { success: false, message };
+      // Don't show a toast for pending_approval — the Login page shows its own banner
+      if (code !== 'PENDING_APPROVAL') {
+        toast.error(message);
+      }
+      return { success: false, message, code };
     }
   };
 
@@ -58,17 +62,23 @@ export const AuthProvider = ({ children }) => {
   const register = async (userData) => {
     try {
       const response = await authAPI.register(userData);
-      const { token, user } = response.data.data; // ✅ FIX: Added .data
 
-      // Save to localStorage
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
+      // If pending_approval is true, registration succeeded but no token was issued
+      if (response.data.pending_approval) {
+        return { success: true, pending_approval: true, message: response.data.message };
+      }
 
-      // Update state
-      setToken(token);
-      setUser(user);
+      // Admin-created user — token provided, log them in automatically
+      if (response.data.data?.token) {
+        const { token, user } = response.data.data;
+        localStorage.setItem('token', token);
+        localStorage.setItem('user', JSON.stringify(user));
+        setToken(token);
+        setUser(user);
+        toast.success('User created successfully!');
+        return { success: true };
+      }
 
-      toast.success('Registration successful!');
       return { success: true };
     } catch (error) {
       const message = error.response?.data?.message || 'Registration failed';

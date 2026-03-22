@@ -18,7 +18,7 @@ const auth = async (req, res, next) => {
 
     // Get user from database
     const result = await query(
-      'SELECT id, username, email, full_name, role, is_active FROM users WHERE id = $1',
+      'SELECT id, username, email, full_name, role, is_active, is_approved FROM users WHERE id = $1',
       [decoded.id]
     );
 
@@ -64,8 +64,10 @@ const auth = async (req, res, next) => {
 };
 
 // Role-based authorization middleware
+// SUPERADMIN always passes every authorize() check
 const authorize = (...roles) => {
   return (req, res, next) => {
+    if (req.user.role === 'SUPERADMIN') return next();
     if (!roles.includes(req.user.role)) {
       return res.status(403).json({
         success: false,

@@ -161,6 +161,74 @@ exports.getPaymentHistory = async (req, res) => {
   }
 };
 
+// @desc    Override-edit a payment record (SUPERADMIN only)
+// @route   PUT /api/payments/:id
+// @access  Private (SUPERADMIN only)
+exports.updatePayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      payment_date, amount_paid, payment_mode,
+      cheque_no, utr, cash_collected_by, received_in_account_id, notes
+    } = req.body;
+
+    const validModes = ['NEFT', 'UPI', 'CASH', 'CHEQUE'];
+
+    // Fetch existing payment first
+    const existing = await query(
+      'SELECT * FROM bill_payments WHERE id = $1',
+      [id]
+    );
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Payment not found' });
+    }
+
+    const mode = payment_mode && validModes.includes(payment_mode) ? payment_mode : existing.rows[0].payment_mode;
+
+    const result = await query(
+      `UPDATE bill_payments
+       SET payment_date          = COALESCE($1, payment_date),
+           amount_paid           = COALESCE($2, amount_paid),
+           payment_mode          = $3,
+           cheque_no             = $4,
+           utr                   = $5,
+           cash_collected_by     = $6,
+           received_in_account_id = $7,
+           notes                 = COALESCE($8, notes),
+           updated_at            = CURRENT_TIMESTAMP
+       WHERE id = $9
+       RETURNING *`,
+      [
+        payment_date   || null,
+        amount_paid    ? parseFloat(amount_paid) : null,
+        mode,
+        cheque_no      && cheque_no.trim()          !== '' ? cheque_no.trim()          : null,
+        utr            && utr.trim()                !== '' ? utr.trim()                : null,
+        cash_collected_by && cash_collected_by.trim() !== '' ? cash_collected_by.trim() : null,
+        received_in_account_id || null,
+        notes          || null,
+        id
+      ]
+    );
+
+    const updated = result.rows[0];
+
+    logActivity({
+      performedBy: req.user.id,
+      action: 'OVERRIDE_EDIT_PAYMENT',
+      entityType: 'PAYMENT',
+      entityId: parseInt(id),
+      description: `[SUPERADMIN OVERRIDE] Edited payment #${id} — ₹${parseFloat(updated.amount_paid).toFixed(2)} via ${updated.payment_mode}`,
+      metadata: { payment_id: parseInt(id), bill_id: updated.bill_id, amount_paid: updated.amount_paid, payment_mode: updated.payment_mode },
+    });
+
+    res.json({ success: true, message: 'Payment updated successfully', data: updated });
+  } catch (error) {
+    console.error('Update payment error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update payment', error: error.message });
+  }
+};
+
 // @desc    Delete a payment
 // @route   DELETE /api/payments/:id
 // @access  Private (CA only)

@@ -56,9 +56,10 @@ export const authAPI = {
 // ============================================================================
 
 export const paymentAPI = {
-  markPayment: (paymentData) => api.post('/payments', paymentData),
-  getPaymentHistory: (billId) => api.get(`/payments/bill/${billId}`),
-  deletePayment: (id) => api.delete(`/payments/${id}`),
+  markPayment:    (paymentData) => api.post('/payments', paymentData),
+  getPaymentHistory: (billId)  => api.get(`/payments/bill/${billId}`),
+  updatePayment:  (id, data)   => api.put(`/payments/${id}`, data),
+  deletePayment:  (id)         => api.delete(`/payments/${id}`),
 };
 
 // ============================================================================

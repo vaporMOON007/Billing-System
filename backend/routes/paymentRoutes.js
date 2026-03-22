@@ -9,6 +9,7 @@ router.use(auth);
 // Payment operations
 router.post('/', authorize('CA'), paymentController.markPayment);
 router.get('/bill/:billId', paymentController.getPaymentHistory);
+router.put('/:id', authorize('SUPERADMIN'), paymentController.updatePayment);
 router.delete('/:id', authorize('CA'), paymentController.deletePayment);
 
 module.exports = router;

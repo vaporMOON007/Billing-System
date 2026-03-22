@@ -98,6 +98,14 @@ const PrintBillPage = () => {
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [previewBill, setPreviewBill] = useState(null);
 
+  // Override Payments modal (SUPERADMIN)
+  const [showOverridePaymentsModal, setShowOverridePaymentsModal] = useState(false);
+  const [overridePaymentsBill, setOverridePaymentsBill] = useState(null);
+  const [overridePayments, setOverridePayments] = useState([]);
+  const [overrideBankAccounts, setOverrideBankAccounts] = useState([]);
+  const [savingPaymentId, setSavingPaymentId] = useState(null);
+  const [editingPayments, setEditingPayments] = useState({});
+
   useEffect(() => {
     masterAPI.getAllHeaders().then(r => setHeaders(r.data.data || [])).catch(() => {});
   }, []);
@@ -196,6 +204,85 @@ const PrintBillPage = () => {
     setView('list');
     setSelectedBill(null);
     loadBills();
+  };
+
+  // ── Override Payments (SUPERADMIN) ───────────────────────────────────────
+  const handleOpenOverridePayments = async (bill) => {
+    try {
+      const [paymentsRes, bankRes] = await Promise.all([
+        paymentAPI.getPaymentHistory(bill.id),
+        masterAPI.getBankAccounts(),
+      ]);
+      const payments = paymentsRes.data.data || [];
+      // Seed editable copy for each payment row
+      const editMap = {};
+      payments.forEach(p => {
+        editMap[p.id] = {
+          payment_date:          p.payment_date ? p.payment_date.split('T')[0] : '',
+          amount_paid:           p.amount_paid,
+          payment_mode:          p.payment_mode || 'NEFT',
+          cheque_no:             p.cheque_no || '',
+          utr:                   p.utr || '',
+          cash_collected_by:     p.cash_collected_by || '',
+          received_in_account_id: p.received_in_account_id || '',
+          notes:                 p.notes || '',
+        };
+      });
+      setOverridePayments(payments);
+      setEditingPayments(editMap);
+      setOverrideBankAccounts(bankRes.data.data || []);
+      setOverridePaymentsBill(bill);
+      setShowOverridePaymentsModal(true);
+    } catch {
+      toast.error('Failed to load payment details');
+    }
+  };
+
+  const handleOverridePaymentFieldChange = (paymentId, field, value) => {
+    setEditingPayments(prev => ({
+      ...prev,
+      [paymentId]: { ...prev[paymentId], [field]: value },
+    }));
+  };
+
+  const handleSaveOverridePayment = async (paymentId) => {
+    setSavingPaymentId(paymentId);
+    try {
+      const data = editingPayments[paymentId];
+      await paymentAPI.updatePayment(paymentId, {
+        payment_date:          data.payment_date || null,
+        amount_paid:           parseFloat(data.amount_paid),
+        payment_mode:          data.payment_mode,
+        cheque_no:             data.cheque_no || null,
+        utr:                   data.utr || null,
+        cash_collected_by:     data.cash_collected_by || null,
+        received_in_account_id: data.received_in_account_id || null,
+        notes:                 data.notes || null,
+      });
+      toast.success('Payment updated successfully');
+      // Refresh list
+      const res = await paymentAPI.getPaymentHistory(overridePaymentsBill.id);
+      const updated = res.data.data || [];
+      const updatedMap = {};
+      updated.forEach(p => {
+        updatedMap[p.id] = {
+          payment_date:          p.payment_date ? p.payment_date.split('T')[0] : '',
+          amount_paid:           p.amount_paid,
+          payment_mode:          p.payment_mode || 'NEFT',
+          cheque_no:             p.cheque_no || '',
+          utr:                   p.utr || '',
+          cash_collected_by:     p.cash_collected_by || '',
+          received_in_account_id: p.received_in_account_id || '',
+          notes:                 p.notes || '',
+        };
+      });
+      setOverridePayments(updated);
+      setEditingPayments(updatedMap);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update payment');
+    } finally {
+      setSavingPaymentId(null);
+    }
   };
 
   const handlePrint = () => {
@@ -850,7 +937,7 @@ const PrintBillPage = () => {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
-                            {user?.role === 'CA' && (
+                            {['CA', 'SUPERADMIN'].includes(user?.role) && (
                               <button
                                 onClick={() => handleDeleteBill(bill)}
                                 className="text-red-500 hover:text-red-700"
@@ -860,7 +947,7 @@ const PrintBillPage = () => {
                               </button>
                             )}
                             {/* Finalize button — only for DRAFT bills */}
-                            {user?.role === 'CA' && bill.status === 'DRAFT' && (
+                            {['CA', 'SUPERADMIN'].includes(user?.role) && bill.status === 'DRAFT' && (
                               <button
                                 onClick={() => handleQuickFinalize(bill)}
                                 className="px-2 py-1 bg-orange-500 text-white text-xs font-semibold rounded hover:bg-orange-600 transition-colors"
@@ -870,7 +957,7 @@ const PrintBillPage = () => {
                               </button>
                             )}
                             {/* Mark Payment — always shown for FINALIZED bills; greyed out when already paid */}
-                            {user?.role === 'CA' && bill.status === 'FINALIZED' && (
+                            {['CA', 'SUPERADMIN'].includes(user?.role) && bill.status === 'FINALIZED' && (
                               <button
                                 onClick={() => {
                                   if (bill.payment_status !== 'PAID') {
@@ -891,7 +978,7 @@ const PrintBillPage = () => {
                               </button>
                             )}
                             {/* Unmerge — only for DRAFT bills that are an actual merge result */}
-                            {user?.role === 'CA' && bill.status === 'DRAFT' && bill.is_merged && (
+                            {['CA', 'SUPERADMIN'].includes(user?.role) && bill.status === 'DRAFT' && bill.is_merged && (
                               <button
                                 onClick={() => handleUnmerge(bill)}
                                 className="flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
@@ -917,6 +1004,17 @@ const PrintBillPage = () => {
                               >
                                 <Edit className="w-3 h-3" />
                                 Override
+                              </button>
+                            )}
+                            {/* Override Payments — SUPERADMIN only, for finalized/paid bills */}
+                            {user?.role === 'SUPERADMIN' && (bill.status === 'FINALIZED' || bill.status === 'PAID') && (
+                              <button
+                                onClick={() => handleOpenOverridePayments(bill)}
+                                className="flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors"
+                                title="Override Payments (SUPERADMIN)"
+                              >
+                                <IndianRupee className="w-3 h-3" />
+                                Payments
                               </button>
                             )}
                           </div>
@@ -974,7 +1072,7 @@ const PrintBillPage = () => {
                     </p>
                   </div>
                 </div>
-                {selectedBill.status === 'DRAFT' && user?.role === 'CA' && (
+                {selectedBill.status === 'DRAFT' && ['CA', 'SUPERADMIN'].includes(user?.role) && (
                   <button
                     onClick={() => handleUnmerge(selectedBill)}
                     className="flex items-center gap-2 px-4 py-2 bg-white border border-indigo-300 text-indigo-700 rounded-lg text-sm font-medium hover:bg-indigo-50 transition-colors"
@@ -1056,7 +1154,17 @@ const PrintBillPage = () => {
                   <span>Override Edit</span>
                 </button>
                 )}
-                {user?.role === 'CA' && selectedBill.status === 'FINALIZED' && (
+                {/* Override Payments — SUPERADMIN only, for finalized/paid bills */}
+                {user?.role === 'SUPERADMIN' && (selectedBill.status === 'FINALIZED' || selectedBill.status === 'PAID') && (
+                <button
+                  onClick={() => handleOpenOverridePayments(selectedBill)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
+                >
+                  <IndianRupee className="w-4 h-4" />
+                  <span>Override Payments</span>
+                </button>
+                )}
+                {['CA', 'SUPERADMIN'].includes(user?.role) && selectedBill.status === 'FINALIZED' && (
                   <button
                     onClick={() => {
                       if (selectedBill.payment_status !== 'PAID') {
@@ -1795,6 +1903,181 @@ const PrintBillPage = () => {
               ) : (
                 <><GitBranch className="w-4 h-4" /> Yes, Unmerge</>
               )}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Override Payments Modal (SUPERADMIN) ─────────────────────── */}
+      <Modal
+        isOpen={showOverridePaymentsModal}
+        onClose={() => {
+          setShowOverridePaymentsModal(false);
+          setOverridePaymentsBill(null);
+          setOverridePayments([]);
+          setEditingPayments({});
+        }}
+        title={`Override Payments — ${overridePaymentsBill?.bill_no || ''}`}
+        size="xl"
+      >
+        <div className="space-y-4">
+          {/* Warning banner */}
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-amber-800">SUPERADMIN Override — All changes are audit-logged</p>
+              <p className="text-xs text-amber-600 mt-0.5">Edit payment details below and click Save on each row to apply changes.</p>
+            </div>
+          </div>
+
+          {overridePayments.length === 0 ? (
+            <div className="text-center py-8 text-gray-500 text-sm">No payment records found for this bill.</div>
+          ) : (
+            <div className="space-y-4">
+              {overridePayments.map((payment, idx) => {
+                const ep = editingPayments[payment.id] || {};
+                const isSaving = savingPaymentId === payment.id;
+                return (
+                  <div key={payment.id} className="border border-amber-200 rounded-lg p-4 bg-amber-50/30">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
+                        Payment #{idx + 1} &nbsp;·&nbsp; Recorded by {payment.recorded_by_name || 'N/A'}
+                      </span>
+                      <button
+                        onClick={() => handleSaveOverridePayment(payment.id)}
+                        disabled={isSaving}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 text-white text-xs font-semibold rounded-lg hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {isSaving ? (
+                          <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> Saving...</>
+                        ) : (
+                          'Save'
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                      {/* Payment Date */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Payment Date</label>
+                        <input
+                          type="date"
+                          value={ep.payment_date || ''}
+                          onChange={e => handleOverridePaymentFieldChange(payment.id, 'payment_date', e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        />
+                      </div>
+
+                      {/* Amount Paid */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Amount Paid (₹)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          value={ep.amount_paid || ''}
+                          onChange={e => handleOverridePaymentFieldChange(payment.id, 'amount_paid', e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        />
+                      </div>
+
+                      {/* Payment Mode */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Payment Mode</label>
+                        <select
+                          value={ep.payment_mode || 'NEFT'}
+                          onChange={e => handleOverridePaymentFieldChange(payment.id, 'payment_mode', e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                        >
+                          <option value="NEFT">NEFT</option>
+                          <option value="UPI">UPI</option>
+                          <option value="CASH">CASH</option>
+                          <option value="CHEQUE">CHEQUE</option>
+                        </select>
+                      </div>
+
+                      {/* UTR / Reference No. — always visible */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">UTR / Reference No.</label>
+                        <input
+                          type="text"
+                          value={ep.utr || ''}
+                          onChange={e => handleOverridePaymentFieldChange(payment.id, 'utr', e.target.value)}
+                          placeholder="UTR number"
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        />
+                      </div>
+
+                      {/* Cheque No. — always visible */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Cheque No.</label>
+                        <input
+                          type="text"
+                          value={ep.cheque_no || ''}
+                          onChange={e => handleOverridePaymentFieldChange(payment.id, 'cheque_no', e.target.value)}
+                          placeholder="Cheque number"
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        />
+                      </div>
+
+                      {/* Cash Collected By — always visible */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Cash Collected By</label>
+                        <input
+                          type="text"
+                          value={ep.cash_collected_by || ''}
+                          onChange={e => handleOverridePaymentFieldChange(payment.id, 'cash_collected_by', e.target.value)}
+                          placeholder="Person who collected"
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        />
+                      </div>
+
+                      {/* Received In Bank Account */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Received In Account</label>
+                        <select
+                          value={ep.received_in_account_id || ''}
+                          onChange={e => handleOverridePaymentFieldChange(payment.id, 'received_in_account_id', e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                        >
+                          <option value="">— None —</option>
+                          {overrideBankAccounts.map(acc => (
+                            <option key={acc.header_id} value={acc.header_id}>
+                              {acc.bank_name} – {acc.account_number} ({acc.company_name})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Notes */}
+                      <div className="col-span-2 md:col-span-3">
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+                        <input
+                          type="text"
+                          value={ep.notes || ''}
+                          onChange={e => handleOverridePaymentFieldChange(payment.id, 'notes', e.target.value)}
+                          placeholder="Optional notes"
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="flex justify-end pt-2">
+            <button
+              onClick={() => {
+                setShowOverridePaymentsModal(false);
+                setOverridePaymentsBill(null);
+                setOverridePayments([]);
+                setEditingPayments({});
+              }}
+              className="px-5 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+            >
+              Close
             </button>
           </div>
         </div>

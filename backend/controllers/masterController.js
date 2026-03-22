@@ -82,6 +82,40 @@ exports.createHeader = async (req, res) => {
   }
 };
 
+// @desc    Get all bank accounts (for Mark Payment dropdown)
+// @route   GET /api/masters/bank-accounts
+// @access  Private
+exports.getBankAccounts = async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT
+         hbd.header_id,
+         hbd.bank_name,
+         hbd.account_number,
+         hbd.account_holder_name,
+         hbd.ifsc_code,
+         hbd.branch_name,
+         hm.company_name
+       FROM header_bank_details hbd
+       JOIN header_master hm ON hm.id = hbd.header_id
+       WHERE hbd.bank_name IS NOT NULL
+       ORDER BY hm.company_name ASC`
+    );
+
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Get bank accounts error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch bank accounts',
+      error: error.message
+    });
+  }
+};
+
 // @desc    Get all headers
 // @route   GET /api/masters/headers
 // @access  Private

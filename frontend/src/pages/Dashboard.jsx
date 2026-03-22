@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FileText, TrendingUp, IndianRupee, Clock, Download, Plus, DollarSign, ArrowUp, ArrowDown } from 'lucide-react';
 import { formatCurrency, formatDate, getFinancialYear } from '../utils/helpers';
 import toast from 'react-hot-toast';
+import * as XLSX from 'xlsx';
 import api from '../services/api';
 import Dropdown from '../components/common/Dropdown';
 import DatePicker from 'react-datepicker';
@@ -117,61 +118,134 @@ const Dashboard = () => {
   const handleExportExcel = async () => {
     try {
       const params = {};
-      if (filters.financial_year) params.financial_year = filters.financial_year;
-      if (filters.date_from) params.date_from = filters.date_from;
-      if (filters.date_to) params.date_to = filters.date_to;
-      if (filters.header_id) params.header_id = filters.header_id;
-      if (filters.client_id) params.client_id = filters.client_id;
-      if (filters.payment_status) params.payment_status = filters.payment_status;
+      if (filters.financial_year)  params.financial_year  = filters.financial_year;
+      if (filters.date_from)       params.date_from       = filters.date_from;
+      if (filters.date_to)         params.date_to         = filters.date_to;
+      if (filters.header_id)       params.header_id       = filters.header_id;
+      if (filters.client_id)       params.client_id       = filters.client_id;
+      if (filters.payment_status)  params.payment_status  = filters.payment_status;
 
       const response = await api.get('/reports/export-bills', { params });
-      
-      // Convert to CSV
-      const bills = response.data.data.bills;
-      const totals = response.data.data.totals;
-      
-      const csvHeaders = ['Bill No', 'Date', 'Company', 'Client', 'Amount', 'Paid', 'Balance', 'Status', 'Payment Status'];
-      const csvRows = bills.map(bill => [
-        bill.bill_no,
-        formatDate(bill.bill_date),
-        bill.company_name,
-        bill.client_name || 'N/A',
-        bill.total_invoice_value,
-        bill.total_paid || 0,
-        bill.balance,
-        bill.status,
-        bill.payment_status || 'UNPAID'
-      ]);
-      
-      // Add totals row
-      csvRows.push([
-        '',
-        '',
-        '',
-        'TOTAL',
-        totals.total_billed,
-        totals.total_paid,
-        totals.total_balance,
-        '',
-        ''
-      ]);
+      const { bills, absorbed_bills, totals } = response.data.data;
 
-      const csv = [
-        csvHeaders.join(','),
-        ...csvRows.map(row => row.join(','))
-      ].join('\n');
+      // ── helper: flatten bills array into worksheet rows ──────────────
+      const HEADERS = [
+        'Bill No', 'Bill Date', 'Due Date', 'Company', 'Client',
+        'Invoice Amount', 'Total Paid', 'Balance', 'Bill Status', 'Payment Status',
+        'Payment Date', 'Payment Amount', 'Payment Mode',
+        'UTR / Ref No', 'Cheque No', 'Collected By',
+        'Received In Bank', 'Account Holder', 'Account Number'
+      ];
 
-      // Download
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `bills-export-${new Date().toISOString().split('T')[0]}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-      
+      const billsToRows = (billList) => {
+        const rows = [];
+        billList.forEach(bill => {
+          const base = [
+            bill.bill_no,
+            bill.bill_date    ? new Date(bill.bill_date)    : '',
+            bill.due_date     ? new Date(bill.due_date)     : '',
+            bill.company_name || '',
+            bill.client_name  || '',
+            parseFloat(bill.total_invoice_value) || 0,
+            parseFloat(bill.total_paid || 0),
+            parseFloat(bill.balance)   || 0,
+            bill.status,
+            bill.payment_status || 'UNPAID',
+          ];
+          if (bill.payments && bill.payments.length > 0) {
+            bill.payments.forEach(pmt => {
+              rows.push([
+                ...base,
+                pmt.payment_date ? new Date(pmt.payment_date) : '',
+                parseFloat(pmt.amount_paid) || 0,
+                pmt.payment_mode              || '',
+                pmt.utr                       || '',
+                pmt.cheque_no                 || '',
+                pmt.cash_collected_by         || '',
+                pmt.received_in_bank          || '',
+                pmt.received_account_holder   || '',
+                pmt.received_account_number   || '',
+              ]);
+            });
+          } else {
+            rows.push([...base, '', '', '', '', '', '', '', '', '']);
+          }
+        });
+        return rows;
+      };
+
+      // ── Build main sheet ─────────────────────────────────────────────
+      const mainRows   = billsToRows(bills);
+      const totalsRow  = [
+        'TOTAL', '', '', '', '',
+        totals.total_billed, totals.total_paid, totals.total_balance,
+        '', '', '', '', '', '', '', '', '', '', ''
+      ];
+      const mainData   = [HEADERS, ...mainRows, totalsRow];
+      const mainSheet  = XLSX.utils.aoa_to_sheet(mainData);
+
+      // Date format for date columns (B, C, K = indices 1, 2, 10)
+      const dateFmt = 'dd/mm/yyyy';
+      const dateColIndices = [1, 2, 10];
+      const numFmt   = '#,##0.00';
+      const amtColIndices = [5, 6, 7, 11];
+
+      // Apply column widths
+      mainSheet['!cols'] = [
+        { wch: 16 }, // Bill No
+        { wch: 12 }, // Bill Date
+        { wch: 12 }, // Due Date
+        { wch: 22 }, // Company
+        { wch: 26 }, // Client
+        { wch: 14 }, // Invoice
+        { wch: 12 }, // Paid
+        { wch: 12 }, // Balance
+        { wch: 12 }, // Status
+        { wch: 14 }, // Payment Status
+        { wch: 12 }, // Pmt Date
+        { wch: 14 }, // Pmt Amount
+        { wch: 12 }, // Mode
+        { wch: 20 }, // UTR
+        { wch: 14 }, // Cheque
+        { wch: 20 }, // Collected By
+        { wch: 22 }, // Bank
+        { wch: 22 }, // Account Holder
+        { wch: 20 }, // Account Number
+      ];
+
+      // Format cells
+      const range = XLSX.utils.decode_range(mainSheet['!ref'] || 'A1');
+      for (let R = 1; R <= range.e.r; R++) {
+        dateColIndices.forEach(C => {
+          const cell = mainSheet[XLSX.utils.encode_cell({ r: R, c: C })];
+          if (cell && cell.t === 'd') cell.z = dateFmt;
+        });
+        amtColIndices.forEach(C => {
+          const cell = mainSheet[XLSX.utils.encode_cell({ r: R, c: C })];
+          if (cell && cell.t === 'n') cell.z = numFmt;
+        });
+      }
+
+      // Bold header row
+      for (let C = 0; C <= HEADERS.length - 1; C++) {
+        const cell = mainSheet[XLSX.utils.encode_cell({ r: 0, c: C })];
+        if (cell) cell.s = { font: { bold: true }, fill: { fgColor: { rgb: '4F46E5' } }, font: { bold: true, color: { rgb: 'FFFFFF' } } };
+      }
+
+      // ── Build absorbed sheet ─────────────────────────────────────────
+      const absorbedRows = billsToRows(absorbed_bills || []);
+      const absorbedData = [HEADERS, ...(absorbedRows.length ? absorbedRows : [['No absorbed bills in this period']])];
+      const absorbedSheet = XLSX.utils.aoa_to_sheet(absorbedData);
+      absorbedSheet['!cols'] = mainSheet['!cols'];
+
+      // ── Assemble workbook ────────────────────────────────────────────
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, mainSheet,     'Bills');
+      XLSX.utils.book_append_sheet(wb, absorbedSheet, 'Absorbed Bills');
+
+      const filename = `bills-export-${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(wb, filename);
+
       toast.success('Exported successfully');
     } catch (error) {
       console.error('Export error:', error);

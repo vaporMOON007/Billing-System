@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, IndianRupee, Calendar, User } from 'lucide-react';
+import { X, IndianRupee, Calendar, User, CreditCard, Hash, Banknote, Building2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 import api from '../../services/api';
@@ -117,15 +117,16 @@ const PaymentHistoryPopup = ({ isOpen, onClose, billId, billNo, totalAmount }) =
                               </span>
                               {payment.payment_mode && (
                                 <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                                  payment.payment_mode === 'NEFT' ? 'bg-blue-100 text-blue-700' :
-                                  payment.payment_mode === 'UPI'  ? 'bg-purple-100 text-purple-700' :
-                                                                    'bg-green-100 text-green-700'
+                                  payment.payment_mode === 'NEFT'   ? 'bg-blue-100 text-blue-700' :
+                                  payment.payment_mode === 'UPI'    ? 'bg-purple-100 text-purple-700' :
+                                  payment.payment_mode === 'CHEQUE' ? 'bg-orange-100 text-orange-700' :
+                                                                      'bg-green-100 text-green-700'
                                 }`}>
                                   {payment.payment_mode}
                                 </span>
                               )}
                             </div>
-                            
+
                             <div className="space-y-1 text-sm text-gray-600">
                               <div className="flex items-center space-x-2">
                                 <Calendar className="w-4 h-4" />
@@ -135,6 +136,40 @@ const PaymentHistoryPopup = ({ isOpen, onClose, billId, billNo, totalAmount }) =
                                 <User className="w-4 h-4" />
                                 <span>Recorded by: {payment.recorded_by_name || 'Unknown'}</span>
                               </div>
+                              {payment.utr && (
+                                <div className="flex items-center space-x-2">
+                                  <Hash className="w-4 h-4" />
+                                  <span>UTR: {payment.utr}</span>
+                                </div>
+                              )}
+                              {payment.cheque_no && (
+                                <div className="flex items-center space-x-2">
+                                  <CreditCard className="w-4 h-4" />
+                                  <span>Cheque No: {payment.cheque_no}</span>
+                                </div>
+                              )}
+                              {payment.cash_collected_by && (
+                                <div className="flex items-center space-x-2">
+                                  <Banknote className="w-4 h-4" />
+                                  <span>Collected by: {payment.cash_collected_by}</span>
+                                </div>
+                              )}
+                              {(payment.received_in_bank || payment.received_account_holder || payment.received_account_number) && (
+                                <div className="flex items-start space-x-2">
+                                  <Building2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                                  <div className="text-sm">
+                                    {payment.received_in_bank && (
+                                      <div className="font-medium">{payment.received_in_bank}</div>
+                                    )}
+                                    {payment.received_account_holder && (
+                                      <div className="text-gray-500">A/C Holder: {payment.received_account_holder}</div>
+                                    )}
+                                    {payment.received_account_number && (
+                                      <div className="text-gray-500">A/C No: {payment.received_account_number}</div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                               {payment.notes && (
                                 <div className="mt-2 p-2 bg-white rounded border border-gray-200">
                                   <p className="text-xs text-gray-500">Note:</p>

@@ -6,6 +6,9 @@ const { auth } = require('../middleware/auth');
 // All routes require authentication
 router.use(auth);
 
+// Bank Accounts (for Mark Payment dropdown)
+router.get('/bank-accounts', masterController.getBankAccounts);
+
 // Header Master (Companies)
 router.get('/headers', masterController.getAllHeaders);
 router.get('/headers/:id', masterController.getHeaderById);

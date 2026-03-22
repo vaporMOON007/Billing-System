@@ -131,6 +131,9 @@ export const masterAPI = {
   createPaymentTerm: (data) => api.post('/masters/payment-terms', data),
   updatePaymentTerm: (id, data) => api.put(`/masters/payment-terms/${id}`, data),
   deletePaymentTerm: (id) => api.delete(`/masters/payment-terms/${id}`),
+
+  // Bank Accounts (for Mark Payment dropdown)
+  getBankAccounts: () => api.get('/masters/bank-accounts'),
 };
 
 
@@ -149,8 +152,9 @@ export const userAPI = {
 // REPORTS ENDPOINTS
 // ============================================================================
 export const reportAPI = {
-  getDashboardKPIs: (params) => api.get('/reports/dashboard-kpis', { params }),
-  getReceivables:   (params) => api.get('/reports/receivables',    { params }),
+  getDashboardKPIs:          (params) => api.get('/reports/dashboard-kpis',   { params }),
+  getReceivables:            (params) => api.get('/reports/receivables',       { params }),
+  getClientDetailedReport:   (params) => api.get('/reports/client-detailed',  { params }),
 };
 
 // ============================================================================

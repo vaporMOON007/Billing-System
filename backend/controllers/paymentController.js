@@ -8,8 +8,11 @@ exports.markPayment = async (req, res) => {
   const client = await require('../config/database').pool.connect();
 
   try {
-    const { bill_id, payment_date, amount_paid, notes, payment_mode } = req.body;
-    const validModes = ['NEFT', 'UPI', 'CASH'];
+    const {
+      bill_id, payment_date, amount_paid, notes, payment_mode,
+      cheque_no, utr, cash_collected_by, received_in_account_id
+    } = req.body;
+    const validModes = ['NEFT', 'UPI', 'CASH', 'CHEQUE'];
     const mode = validModes.includes(payment_mode) ? payment_mode : 'NEFT';
 
     // Validate input
@@ -67,10 +70,18 @@ exports.markPayment = async (req, res) => {
 
     // Insert payment record
     const paymentResult = await client.query(
-      `INSERT INTO bill_payments (bill_id, payment_date, amount_paid, notes, recorded_by, payment_mode)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO bill_payments
+         (bill_id, payment_date, amount_paid, notes, recorded_by, payment_mode,
+          cheque_no, utr, cash_collected_by, received_in_account_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
-      [bill_id, payment_date, amount_paid, notes || null, req.user.id, mode]
+      [
+        bill_id, payment_date, amount_paid, notes || null, req.user.id, mode,
+        cheque_no   && cheque_no.trim()   !== '' ? cheque_no.trim()   : null,
+        utr         && utr.trim()         !== '' ? utr.trim()         : null,
+        cash_collected_by && cash_collected_by.trim() !== '' ? cash_collected_by.trim() : null,
+        received_in_account_id || null
+      ]
     );
 
     await client.query('COMMIT');
@@ -123,9 +134,13 @@ exports.getPaymentHistory = async (req, res) => {
     const result = await query(
       `SELECT
         bp.*,
-        u.full_name as recorded_by_name
+        u.full_name                as recorded_by_name,
+        hbd.bank_name              as received_in_bank,
+        hbd.account_holder_name    as received_account_holder,
+        hbd.account_number         as received_account_number
        FROM bill_payments bp
        LEFT JOIN users u ON bp.recorded_by = u.id
+       LEFT JOIN header_bank_details hbd ON bp.received_in_account_id = hbd.header_id
        WHERE bp.bill_id = $1
        ORDER BY bp.payment_date DESC, bp.created_at DESC`,
       [billId]

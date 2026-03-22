@@ -335,16 +335,24 @@ exports.generateDetailedReport = async (req, res) => {
       params
     );
 
-    // Get payment timeline
+    // Get payment timeline (with all new fields)
     const paymentsResult = await query(
-      `SELECT 
+      `SELECT
+        bp.id,
+        bp.bill_id,
         bp.payment_date,
         bp.amount_paid,
+        bp.payment_mode,
+        bp.cheque_no,
+        bp.utr,
+        bp.cash_collected_by,
         b.bill_no,
-        u.full_name as recorded_by
+        u.full_name as recorded_by,
+        hbd.bank_name as received_in_bank
       FROM bill_payments bp
       JOIN bills b ON bp.bill_id = b.id
       LEFT JOIN users u ON bp.recorded_by = u.id
+      LEFT JOIN header_bank_details hbd ON bp.received_in_account_id = hbd.header_id
       ${whereClause}
       ORDER BY bp.payment_date DESC`,
       params
@@ -447,8 +455,9 @@ exports.exportBills = async (req, res) => {
       paramCount++;
     }
 
-    const result = await query(
-      `SELECT 
+    const billsResult = await query(
+      `SELECT
+        b.id as bill_id,
         b.bill_no,
         b.bill_date,
         b.due_date,
@@ -469,17 +478,56 @@ exports.exportBills = async (req, res) => {
       params
     );
 
-    // Calculate totals
-    const totals = result.rows.reduce((acc, row) => ({
+    // Split into main bills (DRAFT/FINALIZED) and absorbed bills
+    const mainBillRows     = billsResult.rows.filter(b => b.status !== 'ABSORBED');
+    const absorbedBillRows = billsResult.rows.filter(b => b.status === 'ABSORBED');
+
+    // Calculate totals from non-absorbed bills only
+    const totals = mainBillRows.reduce((acc, row) => ({
       total_billed: acc.total_billed + parseFloat(row.total_invoice_value),
       total_paid: acc.total_paid + parseFloat(row.total_paid || 0),
       total_balance: acc.total_balance + parseFloat(row.balance)
     }), { total_billed: 0, total_paid: 0, total_balance: 0 });
 
+    // Fetch payments for all returned bills (main + absorbed)
+    const allBillIds = billsResult.rows.map(b => b.bill_id);
+    let paymentsMap = {};
+    if (allBillIds.length > 0) {
+      const pmtResult = await query(
+        `SELECT
+          bp.bill_id,
+          bp.payment_date,
+          bp.amount_paid,
+          bp.payment_mode,
+          bp.utr,
+          bp.cheque_no,
+          bp.cash_collected_by,
+          hbd.bank_name         as received_in_bank,
+          hbd.account_holder_name as received_account_holder,
+          hbd.account_number    as received_account_number
+        FROM bill_payments bp
+        LEFT JOIN header_bank_details hbd ON bp.received_in_account_id = hbd.header_id
+        WHERE bp.bill_id = ANY($1)
+        ORDER BY bp.payment_date ASC`,
+        [allBillIds]
+      );
+      pmtResult.rows.forEach(p => {
+        if (!paymentsMap[p.bill_id]) paymentsMap[p.bill_id] = [];
+        paymentsMap[p.bill_id].push(p);
+      });
+    }
+
+    // Attach payments array to each bill row
+    const attachPayments = (rows) => rows.map(b => ({
+      ...b,
+      payments: paymentsMap[b.bill_id] || []
+    }));
+
     res.json({
       success: true,
       data: {
-        bills: result.rows,
+        bills:          attachPayments(mainBillRows),
+        absorbed_bills: attachPayments(absorbedBillRows),
         totals
       }
     });

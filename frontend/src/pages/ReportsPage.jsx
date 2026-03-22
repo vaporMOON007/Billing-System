@@ -173,6 +173,7 @@ export default function ReportsPage() {
                       ))}
                     </tr>
                   </thead>
+
                   <tbody className="divide-y divide-gray-50">
                     {(data.by_company || []).length === 0 ? (
                       <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400 text-sm">No data</td></tr>

@@ -1075,13 +1075,30 @@ exports.generatePDF = async (req, res) => {
       subtotal += amt;
       totalGST += gstAmt;
 
+      const serviceName = service.particulars_other || service.service_name || '';
+
       doc.text(`${i + 1}`, 50, rowY, { width: 25 });
-      doc.text(service.service_name || '', 75, rowY, { width: 200 });
+      doc.font('Helvetica').fontSize(9).fillColor('black')
+         .text(serviceName, 75, rowY, { width: 200 });
+
+      // Save Y after service name so description can be drawn directly below it
+      const afterNameY = doc.y;
+
+      // Draw numeric columns at the same row start
       doc.text(amt.toFixed(2), 285, rowY, { width: 70, align: 'right' });
       doc.text(`${gstPct}%`, 365, rowY, { width: 50, align: 'right' });
       doc.text(gstAmt.toFixed(2), 425, rowY, { width: 65, align: 'right' });
       doc.text(lineTotal.toFixed(2), 495, rowY, { width: 50, align: 'right' });
-      doc.moveDown(0.8);
+
+      if (service.description) {
+        // Draw description indented below the service name
+        doc.font('Helvetica-Oblique').fontSize(8).fillColor('#555555')
+           .text(service.description, 77, afterNameY, { width: 196 });
+        doc.font('Helvetica').fontSize(9).fillColor('black');
+        doc.moveDown(0.3);
+      } else {
+        doc.moveDown(0.8);
+      }
     });
 
     doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke();

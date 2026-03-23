@@ -228,7 +228,7 @@ const MastersPage = () => {
   };
 
   const tabs = [
-    { id: 'company', label: 'Company Master', roles: ['CA'] },
+    { id: 'company', label: 'Company Master', roles: ['CA', 'SUPERADMIN'] },
     { id: 'particulars', label: 'Services ' },
     { id: 'clients', label: 'Client Master' },
     { id: 'gst', label: 'GST Rates' },

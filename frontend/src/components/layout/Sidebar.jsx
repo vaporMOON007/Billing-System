@@ -37,7 +37,7 @@ const Sidebar = () => {
     { path: '/services-form',   icon: FilePlus,         label: 'Create Bill',     roles: ['CA', 'EMPLOYEE', 'SUPERADMIN'] },
     { path: '/print-bill',      icon: Printer,          label: 'Print Bill',      roles: ['CA', 'EMPLOYEE', 'SUPERADMIN'] },
     { path: '/masters',         icon: Settings,         label: 'Masters',         roles: ['CA', 'EMPLOYEE', 'SUPERADMIN'] },
-    { path: '/user-management', icon: Users,            label: 'User Management', roles: ['CA', 'SUPERADMIN'], badge: pendingCount },
+    { path: '/user-management', icon: Users,            label: 'User Management', roles: ['SUPERADMIN'], badge: pendingCount },
     { path: '/audit-log',       icon: ClipboardList,    label: 'Audit Log',       roles: ['CA', 'SUPERADMIN'] },
   ];
 

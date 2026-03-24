@@ -591,7 +591,7 @@ const PrintBillPage = () => {
           {view === 'list' ? 'All Bills' : 'Bill Preview'}
         </h1>
         <div className="flex items-center gap-3">
-          {view === 'list' && user?.role === 'CA' && (
+          {view === 'list' && ['CA', 'SUPERADMIN'].includes(user?.role) && (
             <button
               onClick={toggleMergeMode}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${

@@ -96,7 +96,7 @@ export const billAPI = {
 export const clientAPI = {
   createClient: (clientData) => api.post('/clients', clientData),
   getAllClients: () => api.get('/clients'),
-  searchClients: (searchTerm) => api.get(`/clients/search?q=${searchTerm}`),
+  searchClients: (searchTerm) => api.get(`/clients/search?query=${searchTerm}`),
   getClientById: (id) => api.get(`/clients/${id}`),
   updateClient: (id, clientData) => api.put(`/clients/${id}`, clientData),
   deleteClient: (id) => api.delete(`/clients/${id}`),

@@ -229,7 +229,7 @@ const Dashboard = () => {
       // Bold header row
       for (let C = 0; C <= HEADERS.length - 1; C++) {
         const cell = mainSheet[XLSX.utils.encode_cell({ r: 0, c: C })];
-        if (cell) cell.s = { font: { bold: true }, fill: { fgColor: { rgb: '4F46E5' } }, font: { bold: true, color: { rgb: 'FFFFFF' } } };
+        if (cell) cell.s = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '4F46E5' } } };
       }
 
       // ── Build absorbed sheet ─────────────────────────────────────────

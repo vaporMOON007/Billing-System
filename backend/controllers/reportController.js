@@ -66,7 +66,7 @@ exports.getDashboardKPIs = async (req, res) => {
       paramCount++;
     }
 
-    // Get overall summary (exclude DRAFT bills from financial totals)
+    // Get overall summary (FINALIZED only — matches Reports page, excludes DRAFT and ABSORBED)
     const summaryResult = await query(
       `SELECT
         COUNT(*) as total_bills,
@@ -74,7 +74,7 @@ exports.getDashboardKPIs = async (req, res) => {
         COALESCE(SUM(total_paid), 0) as total_paid,
         COALESCE(SUM(total_invoice_value - COALESCE(total_paid, 0)), 0) as total_outstanding
       FROM bills b
-      ${whereClause} AND b.status != 'DRAFT'`,
+      ${whereClause} AND b.status = 'FINALIZED'`,
       params
     );
 
@@ -83,7 +83,7 @@ exports.getDashboardKPIs = async (req, res) => {
       ? ((summary.total_paid / summary.total_billed) * 100).toFixed(2)
       : 0;
 
-    // Get company-wise breakdown (exclude DRAFT bills)
+    // Get company-wise breakdown (FINALIZED only)
     const companyResult = await query(
       `SELECT
         h.id,
@@ -94,13 +94,13 @@ exports.getDashboardKPIs = async (req, res) => {
         COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid, 0)), 0) as outstanding
       FROM bills b
       LEFT JOIN header_master h ON b.header_id = h.id
-      ${whereClause} AND b.status != 'DRAFT'
+      ${whereClause} AND b.status = 'FINALIZED'
       GROUP BY h.id, h.company_name
       ORDER BY outstanding DESC`,
       params
     );
 
-    // Get client-wise breakdown (exclude DRAFT bills)
+    // Get client-wise breakdown (FINALIZED only)
     const clientResult = await query(
       `SELECT
         c.id,
@@ -111,7 +111,7 @@ exports.getDashboardKPIs = async (req, res) => {
         COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid, 0)), 0) as outstanding
       FROM bills b
       LEFT JOIN clients_master c ON b.client_id = c.id
-      ${whereClause} AND b.client_id IS NOT NULL AND b.status != 'DRAFT'
+      ${whereClause} AND b.client_id IS NOT NULL AND b.status = 'FINALIZED'
       GROUP BY c.id, c.client_name
       ORDER BY outstanding DESC
       LIMIT 10`,
@@ -142,7 +142,7 @@ exports.getDashboardKPIs = async (req, res) => {
           ELSE 0
         END) as "90+"
       FROM bills b
-      ${whereClause} AND b.payment_status != 'PAID' AND b.status != 'DRAFT' AND b.due_date < CURRENT_DATE`,
+      ${whereClause} AND b.payment_status != 'PAID' AND b.status = 'FINALIZED' AND b.due_date < CURRENT_DATE`,
       params
     );
 

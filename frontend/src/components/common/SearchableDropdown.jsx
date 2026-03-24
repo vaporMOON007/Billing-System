@@ -27,7 +27,7 @@ const SearchableDropdown = ({
     const lower = searchTerm.toLowerCase();
     // Instant local filter on whatever options are in memory right now
     setFilteredOptions(
-      (options || []).filter((o) => o.label.toLowerCase().startsWith(lower))
+      (options || []).filter((o) => o.label.toLowerCase().includes(lower))
     );
     // Also fire API search for complete/fresh results
     if (onSearch) {
@@ -41,7 +41,7 @@ const SearchableDropdown = ({
       if (searchTerm) {
         const lower = searchTerm.toLowerCase();
         setFilteredOptions(
-          (options || []).filter((o) => o.label.toLowerCase().startsWith(lower))
+          (options || []).filter((o) => o.label.toLowerCase().includes(lower))
         );
       } else {
         setFilteredOptions(options || []);

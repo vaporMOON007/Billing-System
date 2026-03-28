@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const billController = require('../controllers/billController');
-const { auth } = require('../middleware/auth');
+const { auth, authorize } = require('../middleware/auth');
 
 // All routes require authentication
 router.use(auth);
@@ -37,5 +37,8 @@ router.post('/:id/lock', billController.acquireLock);
 router.put('/:id/lock/refresh', billController.refreshLock);
 router.delete('/:id/lock', billController.releaseLock);
 router.get('/:id/lock', billController.checkLock);
+
+// Write-off route
+router.post('/:id/writeoff', authorize('SUPERADMIN'), billController.writeOffBill);
 
 module.exports = router;

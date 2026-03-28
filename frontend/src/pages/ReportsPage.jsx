@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   BarChart2, Building2, Users, TrendingUp, AlertCircle,
-  IndianRupee, ChevronRight, Clock
+  IndianRupee, ChevronRight, Clock, Download
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import * as XLSX from 'xlsx';
 import { reportAPI, masterAPI } from '../services/api';
+import api from '../services/api';
 import { formatCurrency } from '../utils/helpers';
 
 // ── small summary card ────────────────────────────────────────────────────
@@ -45,10 +47,11 @@ export default function ReportsPage() {
   const [headers, setHeaders] = useState([]);
 
   // filters
-  const [fy,           setFy]           = useState('');
-  const [dateFrom,     setDateFrom]     = useState('');
-  const [dateTo,       setDateTo]       = useState('');
-  const [clientSearch, setClientSearch] = useState('');
+  const [fy,            setFy]            = useState('');
+  const [dateFrom,      setDateFrom]      = useState('');
+  const [dateTo,        setDateTo]        = useState('');
+  const [onlyFinalized, setOnlyFinalized] = useState(false);
+  const [clientSearch,  setClientSearch]  = useState('');
 
   // ── financial year options ───────────────────────────────────────────
   const fyOptions = (() => {
@@ -70,6 +73,7 @@ export default function ReportsPage() {
       if (fy)       params.financial_year = fy;
       if (dateFrom) params.date_from      = dateFrom;
       if (dateTo)   params.date_to        = dateTo;
+      params.only_finalized = onlyFinalized ? 'true' : 'false';
 
       const [reportRes, headerRes] = await Promise.all([
         reportAPI.getReceivables(params),
@@ -86,13 +90,101 @@ export default function ReportsPage() {
 
   useEffect(() => { load(); }, []);
 
+  // ── Export bills to Excel ─────────────────────────────────────────────
+  const handleExportExcel = async () => {
+    try {
+      const params = {};
+      if (fy)           params.financial_year = fy;
+      if (dateFrom)     params.date_from      = dateFrom;
+      if (dateTo)       params.date_to        = dateTo;
+      if (onlyFinalized) params.status        = 'FINALIZED';
+
+      const response = await api.get('/reports/export-bills', { params });
+      const { bills, absorbed_bills, totals } = response.data.data;
+
+      const HEADERS = [
+        'Bill No', 'Bill Date', 'Due Date', 'Company', 'Client',
+        'Invoice Amount', 'Total Paid', 'Balance', 'Bill Status', 'Payment Status',
+        'Payment Date', 'Payment Amount', 'Payment Mode',
+        'UTR / Ref No', 'Cheque No', 'Collected By',
+        'Received In Bank', 'Account Holder', 'Account Number'
+      ];
+
+      const billsToRows = (billList) => {
+        const rows = [];
+        billList.forEach(bill => {
+          const base = [
+            bill.bill_no,
+            bill.bill_date  ? new Date(bill.bill_date)  : '',
+            bill.due_date   ? new Date(bill.due_date)   : '',
+            bill.company_name || '',
+            bill.client_name  || '',
+            parseFloat(bill.total_invoice_value) || 0,
+            parseFloat(bill.total_paid || 0),
+            parseFloat(bill.balance)   || 0,
+            bill.status,
+            bill.payment_status || 'UNPAID',
+          ];
+          if (bill.payments && bill.payments.length > 0) {
+            bill.payments.forEach(pmt => {
+              rows.push([
+                ...base,
+                pmt.payment_date ? new Date(pmt.payment_date) : '',
+                parseFloat(pmt.amount_paid) || 0,
+                pmt.payment_mode            || '',
+                pmt.utr                     || '',
+                pmt.cheque_no               || '',
+                pmt.cash_collected_by       || '',
+                pmt.received_in_bank        || '',
+                pmt.received_account_holder || '',
+                pmt.received_account_number || '',
+              ]);
+            });
+          } else {
+            rows.push([...base, '', '', '', '', '', '', '', '', '']);
+          }
+        });
+        return rows;
+      };
+
+      const mainRows  = billsToRows(bills);
+      const totalsRow = [
+        'TOTAL', '', '', '', '',
+        totals.total_billed, totals.total_paid, totals.total_balance,
+        '', '', '', '', '', '', '', '', '', '', ''
+      ];
+      const mainData  = [HEADERS, ...mainRows, totalsRow];
+      const mainSheet = XLSX.utils.aoa_to_sheet(mainData);
+      mainSheet['!cols'] = [
+        { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 22 }, { wch: 26 },
+        { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
+        { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 20 }, { wch: 14 },
+        { wch: 20 }, { wch: 22 }, { wch: 22 }, { wch: 20 },
+      ];
+
+      const absorbedRows = billsToRows(absorbed_bills || []);
+      const absorbedData = [HEADERS, ...(absorbedRows.length ? absorbedRows : [['No absorbed bills in this period']])];
+      const absorbedSheet = XLSX.utils.aoa_to_sheet(absorbedData);
+      absorbedSheet['!cols'] = mainSheet['!cols'];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, mainSheet,     'Bills');
+      XLSX.utils.book_append_sheet(wb, absorbedSheet, 'Absorbed Bills');
+      XLSX.writeFile(wb, `bills-export-${new Date().toISOString().split('T')[0]}.xlsx`);
+      toast.success('Exported successfully');
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export data');
+    }
+  };
+
   // ── navigate to Print Bill with filter pre-applied ───────────────────
   const goToCompany = (headerId) => {
-    navigate('/print-bill', { state: { filter: { header_id: headerId, status: 'FINALIZED' } } });
+    navigate('/print-bill', { state: { filter: { header_id: headerId, status: onlyFinalized ? 'FINALIZED' : '' } } });
   };
 
   const goToClient = (clientId) => {
-    navigate('/print-bill', { state: { filter: { client_id: clientId, status: 'FINALIZED' } } });
+    navigate('/print-bill', { state: { filter: { client_id: clientId, status: onlyFinalized ? 'FINALIZED' : '' } } });
   };
 
   const fmt = (n) => formatCurrency(parseFloat(n || 0));
@@ -101,14 +193,23 @@ export default function ReportsPage() {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Page header */}
-      <div className="flex items-center gap-3 mb-6">
-        <div className="p-2 bg-indigo-100 rounded-lg">
-          <BarChart2 className="w-6 h-6 text-indigo-600" />
+      <div className="flex items-center justify-between gap-3 mb-6">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-indigo-100 rounded-lg">
+            <BarChart2 className="w-6 h-6 text-indigo-600" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
+            <p className="text-sm text-gray-500">Receivables, collections, and aging analysis</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
-          <p className="text-sm text-gray-500">Receivables, collections, and aging analysis</p>
-        </div>
+        <button
+          onClick={handleExportExcel}
+          className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
+        >
+          <Download className="w-4 h-4" />
+          Download Reports
+        </button>
       </div>
 
       {/* Filters */}
@@ -135,9 +236,24 @@ export default function ReportsPage() {
           className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">
           Apply
         </button>
-        <button onClick={() => { setFy(''); setDateFrom(''); setDateTo(''); setTimeout(load, 50); }}
+        <button onClick={() => { setFy(''); setDateFrom(''); setDateTo(''); setOnlyFinalized(false); setTimeout(load, 50); }}
           className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors">
           Reset
+        </button>
+        {/* Only Finalized toggle */}
+        <button
+          type="button"
+          onClick={() => setOnlyFinalized(f => !f)}
+          className={`flex items-center gap-2.5 px-4 py-2 rounded-lg border-2 font-semibold text-sm transition-all select-none ${
+            onlyFinalized
+              ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+              : 'bg-white border-gray-300 text-gray-600 hover:border-indigo-400 hover:text-indigo-600'
+          }`}
+        >
+          <span className={`relative inline-flex w-9 h-5 rounded-full transition-colors flex-shrink-0 ${onlyFinalized ? 'bg-white/30' : 'bg-gray-300'}`}>
+            <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${onlyFinalized ? 'translate-x-4' : 'translate-x-0'}`} />
+          </span>
+          Only Finalized
         </button>
       </div>
 

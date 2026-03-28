@@ -71,8 +71,20 @@ const ServiceRow = ({
       {/* Date */}
       <td className="px-4 py-3">
         <DatePicker
-          selected={service.service_date ? new Date(service.service_date) : null}
-          onChange={(date) => handleFieldChange('service_date', date?.toISOString().split('T')[0])}
+          selected={service.service_date ? (() => {
+            const [y, m, d] = service.service_date.split('-').map(Number);
+            return new Date(y, m - 1, d);
+          })() : null}
+          onChange={(date) => {
+            if (date) {
+              const y = date.getFullYear();
+              const m = String(date.getMonth() + 1).padStart(2, '0');
+              const d = String(date.getDate()).padStart(2, '0');
+              handleFieldChange('service_date', `${y}-${m}-${d}`);
+            } else {
+              handleFieldChange('service_date', null);
+            }
+          }}
           dateFormat="dd/MM/yyyy"
           placeholderText="Select date"
           showMonthDropdown

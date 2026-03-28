@@ -47,9 +47,23 @@ const PrintBillPage = () => {
       date_to:        incoming.date_to        || '',
       header_id:      incoming.header_id      || '',
       client_id:      incoming.client_id      || '',
-      created_by:     ''
+      created_by:     '',
+      client_search:  ''
     };
   });
+
+  // Only Finalized toggle — initialises from incoming navigation (e.g. from Reports page)
+  const [onlyFinalized, setOnlyFinalized] = useState(() => {
+    const incoming = location.state?.filter || {};
+    return incoming.status === 'FINALIZED';
+  });
+
+  const handleOnlyFinalizedToggle = () => {
+    const next = !onlyFinalized;
+    setOnlyFinalized(next);
+    setFilters(f => ({ ...f, status: next ? 'FINALIZED' : '' }));
+    setCurrentPage(1);
+  };
   
   // Modals
   const [showEmailModal, setShowEmailModal] = useState(false);
@@ -106,6 +120,11 @@ const PrintBillPage = () => {
   const [savingPaymentId, setSavingPaymentId] = useState(null);
   const [editingPayments, setEditingPayments] = useState({});
 
+  // Write-off states
+  const [showWriteOffModal, setShowWriteOffModal] = useState(false);
+  const [writeOffNotes, setWriteOffNotes] = useState('');
+  const [writingOff, setWritingOff] = useState(false);
+
   useEffect(() => {
     masterAPI.getAllHeaders().then(r => setHeaders(r.data.data || [])).catch(() => {});
   }, []);
@@ -136,9 +155,10 @@ const PrintBillPage = () => {
         ...(filters.date_to && { date_to: filters.date_to }),
         ...(filters.header_id && { header_id: filters.header_id }),
         ...(filters.client_id && { client_id: filters.client_id }),
-        ...(filters.created_by && { created_by: filters.created_by })
+        ...(filters.created_by && { created_by: filters.created_by }),
+        ...(filters.client_search && { client_search: filters.client_search })
       };
-      
+
       const response = await billAPI.getAllBills(params);
       setBills(response.data.data);
       setTotalBills(response.data.pagination?.total || 0);
@@ -322,7 +342,10 @@ const PrintBillPage = () => {
         heightLeft -= pageHeight;
       }
 
-      pdf.save(`${selectedBill.bill_no}.pdf`);
+      const clientNameSafe = (selectedBill.client_name || 'Bill').replace(/[^a-zA-Z0-9\s\-_]/g, '').trim();
+      const isDraft = selectedBill.status === 'DRAFT';
+      const fileName = isDraft ? `${clientNameSafe} (DRAFT).pdf` : `${clientNameSafe}.pdf`;
+      pdf.save(fileName);
       
       toast.dismiss(loadingToast);
       toast.success('PDF downloaded successfully');
@@ -334,7 +357,7 @@ const PrintBillPage = () => {
 
   const handleSendEmail = async (e) => {
     e.preventDefault();
-    
+
     try {
       await billAPI.sendEmail(selectedBill.id, { recipient_email: recipientEmail });
       toast.success('Email sent successfully');
@@ -343,6 +366,24 @@ const PrintBillPage = () => {
     } catch (error) {
       console.error('Failed to send email:', error);
       toast.error('Failed to send email');
+    }
+  };
+
+  const handleWriteOff = async () => {
+    setWritingOff(true);
+    try {
+      const res = await billAPI.writeOffBill(selectedBill.id, { notes: writeOffNotes });
+      toast.success(res.data.message);
+      setShowWriteOffModal(false);
+      setWriteOffNotes('');
+      loadBills();
+      // Refresh selected bill
+      const updated = await billAPI.getBillById(selectedBill.id);
+      setSelectedBill(updated.data.data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to apply write-off');
+    } finally {
+      setWritingOff(false);
     }
   };
 
@@ -388,8 +429,9 @@ const PrintBillPage = () => {
 
   const totalPages = Math.ceil(totalBills / billsPerPage);
 
-  // NEW: Clear filters handler
+  // Clear filters handler
   const handleClearFilters = () => {
+    setOnlyFinalized(false);
     setFilters({
       status: '',
       payment_status: '',
@@ -398,7 +440,8 @@ const PrintBillPage = () => {
       date_to: '',
       header_id: '',
       client_id: '',
-      created_by: ''
+      created_by: '',
+      client_search: ''
     });
     setCurrentPage(1);
   };
@@ -477,7 +520,9 @@ const PrintBillPage = () => {
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `${previewBill.bill_no}.pdf`);
+      const clientNameSafe2 = (previewBill.client_name || 'Bill').replace(/[^a-zA-Z0-9\s\-_]/g, '').trim();
+      const isDraft2 = previewBill.status === 'DRAFT';
+      link.setAttribute('download', isDraft2 ? `${clientNameSafe2} (DRAFT).pdf` : `${clientNameSafe2}.pdf`);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -720,7 +765,8 @@ const PrintBillPage = () => {
               label="Status"
               value={filters.status}
               onChange={(value) => {
-                setFilters({ ...filters, status: value });
+                setFilters(f => ({ ...f, status: value }));
+                setOnlyFinalized(value === 'FINALIZED');
                 setCurrentPage(1);
               }}
               options={statusOptions}
@@ -740,24 +786,52 @@ const PrintBillPage = () => {
                 { value: 'PAID', label: 'Paid' }
               ]}
             />
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Search by Client</label>
+              <input
+                type="text"
+                value={filters.client_search || ''}
+                onChange={(e) => setFilters({ ...filters, client_search: e.target.value })}
+                placeholder="Client name..."
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
           </div>
           
-          <div className="flex justify-end space-x-3">
+          <div className="flex items-center justify-between">
+            {/* Only Finalized toggle */}
             <button
-              onClick={handleClearFilters}
-              className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+              type="button"
+              onClick={handleOnlyFinalizedToggle}
+              className={`flex items-center gap-2.5 px-4 py-2 rounded-lg border-2 font-semibold text-sm transition-all select-none ${
+                onlyFinalized
+                  ? 'bg-primary-600 border-primary-600 text-white shadow-sm'
+                  : 'bg-white border-gray-300 text-gray-600 hover:border-primary-500 hover:text-primary-600'
+              }`}
             >
-              Clear Filters
+              <span className={`relative inline-flex w-9 h-5 rounded-full transition-colors flex-shrink-0 ${onlyFinalized ? 'bg-white/30' : 'bg-gray-300'}`}>
+                <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${onlyFinalized ? 'translate-x-4' : 'translate-x-0'}`} />
+              </span>
+              Only Finalized
             </button>
-            <button
-              onClick={() => {
-                setCurrentPage(1);
-                loadBills();
-              }}
-              className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-            >
-              Apply Filters
-            </button>
+            <div className="flex space-x-3">
+              <button
+                onClick={handleClearFilters}
+                className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Clear Filters
+              </button>
+              <button
+                onClick={() => {
+                  setCurrentPage(1);
+                  loadBills();
+                }}
+                className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+              >
+                Apply Filters
+              </button>
+            </div>
           </div>
         </div>
           
@@ -1184,6 +1258,14 @@ const PrintBillPage = () => {
                     <span>{selectedBill.payment_status === 'PAID' ? 'Fully Paid ✓' : 'Mark Payment'}</span>
                   </button>
                 )}
+                {user?.role === 'SUPERADMIN' && selectedBill.status === 'FINALIZED' && selectedBill.payment_status === 'PARTIAL' && !selectedBill.writeoff_amount && (
+                  <button
+                    onClick={() => setShowWriteOffModal(true)}
+                    className="flex items-center space-x-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+                  >
+                    <span>Write Off Balance</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1238,6 +1320,15 @@ const PrintBillPage = () => {
                 </div>
               </div>
 
+              {/* Write-Off Badge */}
+              {selectedBill.writeoff_amount > 0 && (
+                <div className="mb-4 bg-orange-50 border border-orange-200 rounded-lg p-3 flex items-center gap-2">
+                  <span className="text-sm font-semibold text-orange-800">Write-Off Applied:</span>
+                  <span className="text-sm text-orange-700">₹{parseFloat(selectedBill.writeoff_amount).toFixed(2)} written off on {selectedBill.writeoff_date ? new Date(selectedBill.writeoff_date).toLocaleDateString('en-IN') : ''}</span>
+                  {selectedBill.writeoff_notes && <span className="text-xs text-orange-600">— {selectedBill.writeoff_notes}</span>}
+                </div>
+              )}
+
               {/* Bill To Section - Client Info */}
               {selectedBill.client_name && (
                 <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
@@ -1249,8 +1340,14 @@ const PrintBillPage = () => {
                   {selectedBill.client_phone && (
                     <p className="text-sm text-gray-600">Phone: {selectedBill.client_phone}</p>
                   )}
-                  {selectedBill.client_email && ( 
+                  {selectedBill.client_email && (
                     <p className="text-sm text-gray-600">Email: {selectedBill.client_email}</p>
+                  )}
+                  {selectedBill.client_gstin && (
+                    <p className="text-sm text-gray-600">GSTIN: <span className="font-mono">{selectedBill.client_gstin}</span></p>
+                  )}
+                  {selectedBill.client_pan && (
+                    <p className="text-sm text-gray-600">PAN: <span className="font-mono">{selectedBill.client_pan}</span></p>
                   )}
                 </div>
               )}
@@ -2082,6 +2179,37 @@ const PrintBillPage = () => {
           </div>
         </div>
       </Modal>
+
+      {/* Write-Off Confirmation Modal */}
+      {showWriteOffModal && selectedBill && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Write Off Remaining Balance</h3>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+              <p className="text-sm text-amber-800">
+                This will write off <strong>₹{(parseFloat(selectedBill.total_invoice_value) - parseFloat(selectedBill.total_paid || 0)).toFixed(2)}</strong> and mark the bill as <strong>Paid</strong>.
+                This action cannot be undone.
+              </p>
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+              <textarea
+                value={writeOffNotes}
+                onChange={e => setWriteOffNotes(e.target.value)}
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                placeholder="Reason for write-off..."
+              />
+            </div>
+            <div className="flex justify-end space-x-3">
+              <button onClick={() => { setShowWriteOffModal(false); setWriteOffNotes(''); }} className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50" disabled={writingOff}>Cancel</button>
+              <button onClick={handleWriteOff} disabled={writingOff} className="px-6 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 flex items-center space-x-2">
+                {writingOff ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>Processing...</span></> : <span>Confirm Write-Off</span>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Success Animations */}
       {showSuccessAnimation && <SuccessCheckmark onComplete={() => setShowSuccessAnimation(false)} />}

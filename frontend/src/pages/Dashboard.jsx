@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileText, TrendingUp, IndianRupee, Clock, Download, Plus, DollarSign, ArrowUp, ArrowDown } from 'lucide-react';
+import { FileText, TrendingUp, IndianRupee, Clock, Plus } from 'lucide-react';
 import { formatCurrency, formatDate, getFinancialYear } from '../utils/helpers';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
@@ -45,6 +45,8 @@ const Dashboard = () => {
       : `${year - 1}-${String(year).slice(-2)}`;
   };
 
+  const [onlyFinalized, setOnlyFinalized] = useState(false);
+
   const [filters, setFilters] = useState({
     financial_year: getCurrentFY(),
     date_from: '',
@@ -87,6 +89,7 @@ const Dashboard = () => {
       if (filters.header_id) params.header_id = filters.header_id;
       if (filters.client_id) params.client_id = filters.client_id;
       if (filters.payment_status) params.payment_status = filters.payment_status;
+      params.only_finalized = onlyFinalized ? 'true' : 'false';
 
       const response = await api.get('/reports/dashboard-kpis', { params });
       setKpis(response.data.data);
@@ -103,6 +106,7 @@ const Dashboard = () => {
   };
 
   const handleClearFilters = () => {
+    setOnlyFinalized(false);
     setFilters({
       financial_year: getCurrentFY(),
       date_from: '',
@@ -369,13 +373,6 @@ const Dashboard = () => {
             <IndianRupee className="w-4 h-4" />
             <span>Record Payment</span>
           </button>
-          <button
-            onClick={handleExportExcel}
-            className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            <span>Download Reports</span>
-          </button>
         </div>
       </div>
 
@@ -471,19 +468,36 @@ const Dashboard = () => {
             />
           </div>
         </div>
-        <div className="flex justify-end space-x-3 mt-4">
+        <div className="flex items-center justify-between mt-4">
+          {/* Only Finalized toggle */}
           <button
-            onClick={handleClearFilters}
-            className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+            type="button"
+            onClick={() => setOnlyFinalized(f => !f)}
+            className={`flex items-center gap-2.5 px-4 py-2 rounded-lg border-2 font-semibold text-sm transition-all select-none ${
+              onlyFinalized
+                ? 'bg-primary-600 border-primary-600 text-white shadow-sm'
+                : 'bg-white border-gray-300 text-gray-600 hover:border-primary-500 hover:text-primary-600'
+            }`}
           >
-            Clear Filters
+            <span className={`relative inline-flex w-9 h-5 rounded-full transition-colors flex-shrink-0 ${onlyFinalized ? 'bg-white/30' : 'bg-gray-300'}`}>
+              <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${onlyFinalized ? 'translate-x-4' : 'translate-x-0'}`} />
+            </span>
+            Only Finalized
           </button>
-          <button
-            onClick={handleApplyFilters}
-            className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-          >
-            Apply Filters
-          </button>
+          <div className="flex space-x-3">
+            <button
+              onClick={handleClearFilters}
+              className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              Clear Filters
+            </button>
+            <button
+              onClick={handleApplyFilters}
+              className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+            >
+              Apply Filters
+            </button>
+          </div>
         </div>
       </div>
 

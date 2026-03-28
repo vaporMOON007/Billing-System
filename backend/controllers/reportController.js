@@ -13,8 +13,14 @@ exports.getDashboardKPIs = async (req, res) => {
       year,
       header_id,
       client_id,
-      payment_status
+      payment_status,
+      only_finalized
     } = req.query;
+
+    // only_finalized defaults to true (previous behaviour)
+    const statusCondition = only_finalized === 'false'
+      ? "b.status IN ('FINALIZED', 'DRAFT')"
+      : "b.status = 'FINALIZED'";
 
     let whereClause = 'WHERE 1=1';
     const params = [];
@@ -66,7 +72,7 @@ exports.getDashboardKPIs = async (req, res) => {
       paramCount++;
     }
 
-    // Get overall summary (FINALIZED only — matches Reports page, excludes DRAFT and ABSORBED)
+    // Get overall summary
     const summaryResult = await query(
       `SELECT
         COUNT(*) as total_bills,
@@ -74,7 +80,7 @@ exports.getDashboardKPIs = async (req, res) => {
         COALESCE(SUM(total_paid), 0) as total_paid,
         COALESCE(SUM(total_invoice_value - COALESCE(total_paid, 0)), 0) as total_outstanding
       FROM bills b
-      ${whereClause} AND b.status = 'FINALIZED'`,
+      ${whereClause} AND ${statusCondition}`,
       params
     );
 
@@ -83,7 +89,7 @@ exports.getDashboardKPIs = async (req, res) => {
       ? ((summary.total_paid / summary.total_billed) * 100).toFixed(2)
       : 0;
 
-    // Get company-wise breakdown (FINALIZED only)
+    // Get company-wise breakdown
     const companyResult = await query(
       `SELECT
         h.id,
@@ -94,13 +100,13 @@ exports.getDashboardKPIs = async (req, res) => {
         COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid, 0)), 0) as outstanding
       FROM bills b
       LEFT JOIN header_master h ON b.header_id = h.id
-      ${whereClause} AND b.status = 'FINALIZED'
+      ${whereClause} AND ${statusCondition}
       GROUP BY h.id, h.company_name
       ORDER BY outstanding DESC`,
       params
     );
 
-    // Get client-wise breakdown (FINALIZED only)
+    // Get client-wise breakdown
     const clientResult = await query(
       `SELECT
         c.id,
@@ -111,14 +117,14 @@ exports.getDashboardKPIs = async (req, res) => {
         COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid, 0)), 0) as outstanding
       FROM bills b
       LEFT JOIN clients_master c ON b.client_id = c.id
-      ${whereClause} AND b.client_id IS NOT NULL AND b.status = 'FINALIZED'
+      ${whereClause} AND b.client_id IS NOT NULL AND ${statusCondition}
       GROUP BY c.id, c.client_name
       ORDER BY outstanding DESC
       LIMIT 10`,
       params
     );
 
-    // Get aging analysis (exclude DRAFT bills)
+    // Get aging analysis
     const agingResult = await query(
       `SELECT
         SUM(CASE
@@ -142,7 +148,7 @@ exports.getDashboardKPIs = async (req, res) => {
           ELSE 0
         END) as "90+"
       FROM bills b
-      ${whereClause} AND b.payment_status != 'PAID' AND b.status = 'FINALIZED' AND b.due_date < CURRENT_DATE`,
+      ${whereClause} AND b.payment_status != 'PAID' AND ${statusCondition} AND b.due_date < CURRENT_DATE`,
       params
     );
 
@@ -468,7 +474,10 @@ exports.exportBills = async (req, res) => {
         (b.total_invoice_value - COALESCE(b.total_paid, 0)) as balance,
         b.status,
         b.payment_status,
-        u.full_name as created_by
+        u.full_name as created_by,
+        b.writeoff_amount,
+        b.writeoff_date,
+        b.writeoff_notes
       FROM bills b
       LEFT JOIN header_master h ON b.header_id = h.id
       LEFT JOIN clients_master c ON b.client_id = c.id
@@ -486,8 +495,9 @@ exports.exportBills = async (req, res) => {
     const totals = mainBillRows.reduce((acc, row) => ({
       total_billed: acc.total_billed + parseFloat(row.total_invoice_value),
       total_paid: acc.total_paid + parseFloat(row.total_paid || 0),
-      total_balance: acc.total_balance + parseFloat(row.balance)
-    }), { total_billed: 0, total_paid: 0, total_balance: 0 });
+      total_balance: acc.total_balance + parseFloat(row.balance),
+      total_writeoff: acc.total_writeoff + parseFloat(row.writeoff_amount || 0)
+    }), { total_billed: 0, total_paid: 0, total_balance: 0, total_writeoff: 0 });
 
     // Fetch payments for all returned bills (main + absorbed)
     const allBillIds = billsResult.rows.map(b => b.bill_id);
@@ -545,9 +555,14 @@ exports.exportBills = async (req, res) => {
 // @access  Private (CA only)
 exports.getReceivables = async (req, res) => {
   try {
-    const { financial_year, date_from, date_to } = req.query;
+    const { financial_year, date_from, date_to, only_finalized } = req.query;
 
-    let whereClause = "WHERE b.status = 'FINALIZED'";
+    // only_finalized defaults to true (same as previous behaviour)
+    const statusFilter = only_finalized === 'false'
+      ? "b.status IN ('FINALIZED', 'DRAFT')"
+      : "b.status = 'FINALIZED'";
+
+    let whereClause = `WHERE ${statusFilter}`;
     const params = [];
     let paramCount = 1;
 

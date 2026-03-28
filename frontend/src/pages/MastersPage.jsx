@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Upload } from 'lucide-react';
+import { Plus, Edit2, Trash2, Upload, Download, FileText, Search } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import { masterAPI, clientAPI } from '../services/api';
 import Modal from '../components/common/Modal';
@@ -27,6 +28,13 @@ const MastersPage = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [itemToDelete, setItemToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Bulk delete and export states
+  const [clientSearch, setClientSearch] = useState('');
+  const [selectedClients, setSelectedClients] = useState([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+  const [bulkDeleteLog, setBulkDeleteLog] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -131,6 +139,60 @@ const MastersPage = () => {
     }
   };
 
+  const handleExportClients = async () => {
+    try {
+      const res = await clientAPI.exportClients();
+      const allClients = res.data.data;
+      const rows = allClients.map(c => ({
+        'ID': c.id,
+        'Client Name': c.client_name,
+        'Contact Person': c.contact_person || '',
+        'Phone': c.phone || '',
+        'Email': c.email || '',
+        'GSTIN': c.gstin || '',
+        'PAN': c.pan || '',
+        'Address Line 1': c.address_line1 || '',
+        'Address Line 2': c.address_line2 || '',
+        'City': c.city || '',
+        'State': c.state || '',
+        'Pincode': c.pincode || '',
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws['!cols'] = [
+        { wch: 8 }, { wch: 25 }, { wch: 20 }, { wch: 15 }, { wch: 25 },
+        { wch: 18 }, { wch: 12 }, { wch: 30 }, { wch: 30 }, { wch: 15 }, { wch: 15 }, { wch: 10 }
+      ];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Clients');
+      XLSX.writeFile(wb, `clients_export_${new Date().toISOString().split('T')[0]}.xlsx`);
+      toast.success(`Exported ${rows.length} clients`);
+    } catch (error) {
+      toast.error('Failed to export clients');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedClients.length === 0) return;
+    setBulkDeleting(true);
+    try {
+      const res = await clientAPI.bulkDelete({ client_ids: selectedClients });
+      const { deleted, skipped } = res.data.data;
+      setBulkDeleteLog({ deleted, skipped });
+      setSelectedClients([]);
+      setShowBulkDeleteModal(false);
+      loadData();
+      if (skipped.length === 0) {
+        toast.success(`${deleted.length} client(s) deleted`);
+      } else {
+        toast(`${deleted.length} deleted, ${skipped.length} skipped`, { icon: '⚠️' });
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Bulk delete failed');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
@@ -171,7 +233,8 @@ const MastersPage = () => {
             contact_person: formData.get('contact_person'),
             phone: formData.get('phone'),
             email: formData.get('email') || null,
-            gstin: formData.get('gstin'),
+            gstin: formData.get('gstin') || null,
+            pan: formData.get('pan') || null,
             address_line1: formData.get('address_line1') || null,
             address_line2: formData.get('address_line2') || null,
             city: formData.get('city') || null,
@@ -241,13 +304,31 @@ const MastersPage = () => {
         <h1 className="text-3xl font-bold text-gray-900">Master Data Management</h1>
         <div className="flex space-x-3">
           {activeTab === 'clients' && (
-            <button
-              onClick={() => setShowBulkImport(true)}
-              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-            >
-              <Upload className="w-4 h-4" />
-              <span>Bulk Import</span>
-            </button>
+            <>
+              {user?.role === 'SUPERADMIN' && selectedClients.length > 0 && (
+                <button
+                  onClick={() => setShowBulkDeleteModal(true)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Delete Selected ({selectedClients.length})</span>
+                </button>
+              )}
+              <button
+                onClick={handleExportClients}
+                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                <span>Export</span>
+              </button>
+              <button
+                onClick={() => setShowBulkImport(true)}
+                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Bulk Import</span>
+              </button>
+            </>
           )}
           <button
             onClick={handleAdd}
@@ -329,39 +410,69 @@ const MastersPage = () => {
 
               {/* Client Master Table */}
               {activeTab === 'clients' && (
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client Name</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Contact Person</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Phone</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">GSTIN</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {clients.map((item) => (
-                      <tr key={item.id}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.id}</td>
-                        <td className="px-6 py-4 text-sm font-medium text-gray-900">{item.client_name}</td>
-                        <td className="px-6 py-4 text-sm text-gray-900">{item.contact_person}</td>
-                        <td className="px-6 py-4 text-sm text-gray-900">{item.phone}</td>
-                        <td className="px-6 py-4 text-sm text-gray-900">{item.gstin}</td>
-                        <td className="px-6 py-4 text-sm text-gray-900">{item.email || '-'}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-                          <button onClick={() => handleEdit(item)} className="text-primary-600 hover:text-primary-900 mr-4">
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => handleDelete(item)} className="text-red-600 hover:text-red-900">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
+                <>
+                  <div className="mb-4 flex items-center gap-3">
+                    <div className="relative flex-1 max-w-sm">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={clientSearch}
+                        onChange={e => setClientSearch(e.target.value)}
+                        placeholder="Search by name, phone, GSTIN, PAN..."
+                        className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      />
+                    </div>
+                    {clientSearch && (
+                      <button onClick={() => setClientSearch('')} className="text-sm text-gray-500 hover:text-gray-700">Clear</button>
+                    )}
+                  </div>
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-3 w-10"><input type="checkbox" onChange={e => { if (e.target.checked) { setSelectedClients(clients.filter(c => !clientSearch || c.client_name?.toLowerCase().includes(clientSearch.toLowerCase()) || c.contact_person?.toLowerCase().includes(clientSearch.toLowerCase()) || c.phone?.includes(clientSearch) || c.gstin?.toLowerCase().includes(clientSearch.toLowerCase()) || c.pan?.toLowerCase().includes(clientSearch.toLowerCase())).map(c => c.id)); } else { setSelectedClients([]); } }} checked={selectedClients.length > 0 && clients.filter(c => !clientSearch || c.client_name?.toLowerCase().includes(clientSearch.toLowerCase()) || c.contact_person?.toLowerCase().includes(clientSearch.toLowerCase()) || c.phone?.includes(clientSearch) || c.gstin?.toLowerCase().includes(clientSearch.toLowerCase()) || c.pan?.toLowerCase().includes(clientSearch.toLowerCase())).every(c => selectedClients.includes(c.id))} className="rounded" /></th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client Name</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Contact Person</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Phone</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">GSTIN</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">PAN</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {clients
+                        .filter(item =>
+                          !clientSearch ||
+                          item.client_name?.toLowerCase().includes(clientSearch.toLowerCase()) ||
+                          item.contact_person?.toLowerCase().includes(clientSearch.toLowerCase()) ||
+                          item.phone?.includes(clientSearch) ||
+                          item.gstin?.toLowerCase().includes(clientSearch.toLowerCase()) ||
+                          item.pan?.toLowerCase().includes(clientSearch.toLowerCase())
+                        )
+                        .map((item) => (
+                        <tr key={item.id}>
+                          <td className="px-3 py-4"><input type="checkbox" checked={selectedClients.includes(item.id)} onChange={e => { if (e.target.checked) { setSelectedClients(prev => [...prev, item.id]); } else { setSelectedClients(prev => prev.filter(id => id !== item.id)); } }} className="rounded" /></td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.id}</td>
+                          <td className="px-6 py-4 text-sm font-medium text-gray-900">{item.client_name}</td>
+                          <td className="px-6 py-4 text-sm text-gray-900">{item.contact_person}</td>
+                          <td className="px-6 py-4 text-sm text-gray-900">{item.phone}</td>
+                          <td className="px-6 py-4 text-sm text-gray-900">{item.gstin || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-gray-900">{item.pan || '-'}</td>
+                          <td className="px-6 py-4 text-sm text-gray-900">{item.email || '-'}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                            <button onClick={() => handleEdit(item)} className="text-primary-600 hover:text-primary-900 mr-4">
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => handleDelete(item)} className="text-red-600 hover:text-red-900">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
               )}
 
               {/* Particulars Table */}
@@ -684,6 +795,23 @@ const MastersPage = () => {
                     />
                     <p className="text-xs text-gray-500 mt-1">15 characters (e.g., 27AABCU9603R1ZM)</p>
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      PAN <span className="text-gray-400 text-xs font-normal">(optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      name="pan"
+                      defaultValue={editingItem?.pan}
+                      pattern="[A-Z]{5}[0-9]{4}[A-Z]{1}"
+                      maxLength={10}
+                      placeholder="ABCDE1234F"
+                      title="10-character PAN (e.g. ABCDE1234F)"
+                      onInput={(e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">10 characters (e.g., ABCDE1234F)</p>
+                  </div>
                 </div>
 
                 {/* Address Details (Optional) - Section Header */}
@@ -843,16 +971,63 @@ const MastersPage = () => {
           activeTab === 'gst' ? 'GST Rate' : 'Payment Term'
         }
         itemName={
-          itemToDelete?.company_name || 
-          itemToDelete?.client_name || 
-          itemToDelete?.service_name || 
-          itemToDelete?.description || 
-          itemToDelete?.term_name || 
+          itemToDelete?.company_name ||
+          itemToDelete?.client_name ||
+          itemToDelete?.service_name ||
+          itemToDelete?.description ||
+          itemToDelete?.term_name ||
           'Unknown'
         }
         itemId={itemToDelete?.id}
         loading={deleting}
       />
+
+      {/* Bulk Delete Confirmation Modal */}
+      {showBulkDeleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Confirm Bulk Delete</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              You are about to delete <strong>{selectedClients.length}</strong> selected client(s).
+              Clients with existing bills will be skipped automatically.
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button onClick={() => setShowBulkDeleteModal(false)} className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50" disabled={bulkDeleting}>Cancel</button>
+              <button onClick={handleBulkDelete} disabled={bulkDeleting} className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center space-x-2">
+                {bulkDeleting ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>Deleting...</span></> : <><Trash2 className="w-4 h-4" /><span>Delete</span></>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Log */}
+      {bulkDeleteLog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Bulk Delete Report</h3>
+            {bulkDeleteLog.deleted.length > 0 && (
+              <div className="mb-3 bg-green-50 border border-green-200 rounded-lg p-3">
+                <p className="text-sm font-semibold text-green-800 mb-1">✓ Deleted ({bulkDeleteLog.deleted.length})</p>
+                <ul className="text-xs text-green-700 space-y-0.5 max-h-32 overflow-y-auto">
+                  {bulkDeleteLog.deleted.map((c, i) => <li key={i}>• {c.client_name}</li>)}
+                </ul>
+              </div>
+            )}
+            {bulkDeleteLog.skipped.length > 0 && (
+              <div className="mb-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <p className="text-sm font-semibold text-amber-800 mb-1">⚠ Skipped ({bulkDeleteLog.skipped.length})</p>
+                <ul className="text-xs text-amber-700 space-y-0.5 max-h-32 overflow-y-auto">
+                  {bulkDeleteLog.skipped.map((c, i) => <li key={i}>• {c.client_name} — {c.reason}</li>)}
+                </ul>
+              </div>
+            )}
+            <div className="flex justify-end mt-4">
+              <button onClick={() => setBulkDeleteLog(null)} className="px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

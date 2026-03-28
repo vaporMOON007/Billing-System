@@ -221,6 +221,12 @@ exports.getAllBills = async (req, res) => {
       paramCount++;
     }
 
+    if (req.query.client_search) {
+      whereClause += ` AND c.client_name ILIKE $${paramCount}`;
+      params.push(`%${req.query.client_search}%`);
+      paramCount++;
+    }
+
     // Add limit and offset
     whereClause += ` ORDER BY b.created_at DESC LIMIT $${paramCount} OFFSET $${paramCount + 1}`;
     params.push(limit, offset);
@@ -232,6 +238,8 @@ exports.getAllBills = async (req, res) => {
         h.bill_prefix,
         COALESCE(b.bill_no, h.bill_prefix || '-DRAFT-' || b.id::text) AS display_ref,
         c.client_name,
+        c.gstin AS client_gstin,
+        c.pan   AS client_pan,
         u.full_name as created_by_name,
         EXISTS (SELECT 1 FROM bill_merges bm WHERE bm.merged_bill_id = b.id) AS is_merged
       FROM bills b
@@ -306,6 +314,7 @@ exports.getBillById = async (req, res) => {
         c.phone            AS client_phone,
         c.email            AS client_email,
         c.gstin            AS client_gstin,
+        c.pan              AS client_pan,
         c.address_line1    AS client_address_line1,
         c.address_line2    AS client_address_line2,
         c.city             AS client_city,
@@ -400,6 +409,7 @@ exports.getBillById = async (req, res) => {
             c.phone            AS client_phone,
             c.email            AS client_email,
             c.gstin            AS client_gstin,
+            c.pan              AS client_pan,
             c.address_line1    AS client_address_line1,
             c.address_line2    AS client_address_line2,
             c.city             AS client_city,
@@ -1692,5 +1702,84 @@ exports.unmergeBill = async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to unmerge bill', error: error.message });
   } finally {
     client.release();
+  }
+};
+
+// ============================================================================
+// WRITE-OFF BILL
+// ============================================================================
+
+// @desc    Write off remaining balance on a FINALIZED PARTIAL bill
+// @route   POST /api/bills/:id/writeoff
+// @access  SUPERADMIN only
+exports.writeOffBill = async (req, res) => {
+  const dbClient = await require('../config/database').pool.connect();
+  try {
+    await dbClient.query('BEGIN');
+    const { id } = req.params;
+    const { notes } = req.body;
+    const userId = req.user.id;
+
+    // Fetch the bill
+    const billResult = await dbClient.query('SELECT * FROM bills WHERE id = $1', [id]);
+    if (billResult.rows.length === 0) {
+      await dbClient.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: 'Bill not found' });
+    }
+    const bill = billResult.rows[0];
+
+    // Only FINALIZED + PARTIAL bills can be written off
+    if (bill.status !== 'FINALIZED') {
+      await dbClient.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'Only finalized bills can be written off' });
+    }
+    if (bill.payment_status !== 'PARTIAL') {
+      await dbClient.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'Only partially paid bills can be written off' });
+    }
+    // Check if already written off
+    if (bill.writeoff_amount > 0) {
+      await dbClient.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'This bill has already been written off' });
+    }
+
+    const writeoffAmount = parseFloat(bill.total_invoice_value) - parseFloat(bill.total_paid || 0);
+
+    // Update the bill
+    await dbClient.query(
+      `UPDATE bills
+       SET payment_status = 'PAID',
+           writeoff_amount = $1,
+           writeoff_by = $2,
+           writeoff_date = CURRENT_DATE,
+           writeoff_notes = $3,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $4`,
+      [writeoffAmount, userId, notes || null, id]
+    );
+
+    await dbClient.query('COMMIT');
+
+    // Log activity
+    logActivity({
+      userId,
+      action: 'WRITE_OFF_BILL',
+      entityType: 'bill',
+      entityId: parseInt(id),
+      description: `Wrote off ₹${writeoffAmount.toFixed(2)} on bill ${bill.bill_no || `DRAFT-${id}`}`,
+      metadata: { writeoff_amount: writeoffAmount, bill_no: bill.bill_no, notes }
+    });
+
+    res.json({
+      success: true,
+      message: `Write-off of ₹${writeoffAmount.toFixed(2)} applied successfully`,
+      data: { writeoff_amount: writeoffAmount }
+    });
+  } catch (error) {
+    await dbClient.query('ROLLBACK').catch(() => {});
+    console.error('Write-off error:', error);
+    res.status(500).json({ success: false, message: 'Failed to apply write-off', error: error.message });
+  } finally {
+    dbClient.release();
   }
 };

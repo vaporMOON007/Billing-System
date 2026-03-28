@@ -300,14 +300,16 @@ const ServicesFormPage = () => {
 
   const handleSaveNewClient = async (e) => {
     e.preventDefault();
-    const clientFormData = new FormData(e.target);  
-    
+    const clientFormData = new FormData(e.target);
+
     try {
       const clientData = {
         client_name: clientFormData.get('client_name'),
         contact_person: clientFormData.get('contact_person'),
         phone: clientFormData.get('phone'),
         email: clientFormData.get('email'),
+        gstin: clientFormData.get('gstin') || null,
+        pan: clientFormData.get('pan') || null,
       };
 
       const response = await clientAPI.createClient(clientData);
@@ -805,18 +807,35 @@ const ServicesFormPage = () => {
             {/* GSTIN */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                GSTIN <span className="text-red-500">*</span>
+                GSTIN <span className="text-gray-400 text-xs font-normal">(optional)</span>
               </label>
               <input
                 type="text"
                 name="gstin"
-                required
                 pattern="[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}"
                 maxLength={15}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="27AABCU9603R1ZM"
               />
               <p className="text-xs text-gray-500 mt-1">15 characters (e.g., 27AABCU9603R1ZM)</p>
+            </div>
+
+            {/* PAN */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                PAN <span className="text-gray-400 text-xs font-normal">(optional)</span>
+              </label>
+              <input
+                type="text"
+                name="pan"
+                pattern="[A-Z]{5}[0-9]{4}[A-Z]{1}"
+                maxLength={10}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="ABCDE1234F"
+                title="10-character PAN (e.g. ABCDE1234F)"
+                onInput={(e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); }}
+              />
+              <p className="text-xs text-gray-500 mt-1">10 characters (e.g., ABCDE1234F)</p>
             </div>
           </div>
 

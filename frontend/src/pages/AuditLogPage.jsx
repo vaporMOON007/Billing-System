@@ -8,18 +8,21 @@ import { activityLogAPI, userAPI } from '../services/api';
 
 // ─── Action config ────────────────────────────────────────────────────────────
 const ACTION_META = {
-  CREATE_BILL:    { label: 'Created bill',    dot: 'bg-indigo-400' },
-  UPDATE_BILL:    { label: 'Updated bill',    dot: 'bg-blue-400' },
-  FINALIZE_BILL:  { label: 'Finalized bill',  dot: 'bg-green-500' },
-  DELETE_BILL:    { label: 'Deleted bill',    dot: 'bg-red-400' },
-  ADD_SERVICE:    { label: 'Added service',   dot: 'bg-teal-400' },
-  DELETE_SERVICE: { label: 'Deleted service', dot: 'bg-orange-400' },
-  MARK_PAYMENT:   { label: 'Marked payment',  dot: 'bg-emerald-500' },
-  MERGE_BILLS:    { label: 'Merged bills',    dot: 'bg-fuchsia-500' },
-  UNMERGE_BILL:   { label: 'Unmerged bill',   dot: 'bg-fuchsia-300' },
-  CREATE_USER:    { label: 'Created user',    dot: 'bg-purple-400' },
-  UPDATE_USER:    { label: 'Updated user',    dot: 'bg-violet-400' },
-  RESET_PASSWORD: { label: 'Reset password',  dot: 'bg-amber-400' },
+  CREATE_BILL:     { label: 'Created bill',    dot: 'bg-indigo-400' },
+  UPDATE_BILL:     { label: 'Updated bill',    dot: 'bg-blue-400' },
+  FINALIZE_BILL:   { label: 'Finalized bill',  dot: 'bg-green-500' },
+  DELETE_BILL:     { label: 'Deleted bill',    dot: 'bg-red-400' },
+  ADD_SERVICE:     { label: 'Added service',   dot: 'bg-teal-400' },
+  DELETE_SERVICE:  { label: 'Deleted service', dot: 'bg-orange-400' },
+  MARK_PAYMENT:    { label: 'Marked payment',  dot: 'bg-emerald-500' },
+  MERGE_BILLS:     { label: 'Merged bills',    dot: 'bg-fuchsia-500' },
+  UNMERGE_BILL:    { label: 'Unmerged bill',   dot: 'bg-fuchsia-300' },
+  WRITE_OFF_BILL:  { label: 'Write-off applied', dot: 'bg-orange-500' },
+  CREATE_USER:     { label: 'Created user',    dot: 'bg-purple-400' },
+  UPDATE_USER:     { label: 'Updated user',    dot: 'bg-violet-400' },
+  RESET_PASSWORD:  { label: 'Reset password',  dot: 'bg-amber-400' },
+  BULK_IMPORT_CLIENTS: { label: 'Bulk import', dot: 'bg-blue-500' },
+  BULK_DELETE_CLIENTS: { label: 'Bulk delete', dot: 'bg-red-600' },
 };
 
 const actionLabel  = (a) => ACTION_META[a]?.label  || a;

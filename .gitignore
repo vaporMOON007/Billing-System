@@ -69,3 +69,4 @@ public/build/
 # Misc
 *.pem
 .certconfig
+CLAUDE.md

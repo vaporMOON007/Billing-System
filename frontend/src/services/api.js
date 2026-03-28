@@ -82,6 +82,7 @@ export const billAPI = {
   mergeBills: (data) => api.post('/bills/merge', data),
   unmergeBill: (id) => api.post(`/bills/${id}/unmerge`),
   previewBillNumber: (params) => api.get('/bills/preview-number', { params }),
+  writeOffBill: (id, data) => api.post(`/bills/${id}/writeoff`, data),
   // Edit lock
   acquireLock: (billId) => api.post(`/bills/${billId}/lock`),
   refreshLock: (billId) => api.put(`/bills/${billId}/lock/refresh`),
@@ -101,6 +102,8 @@ export const clientAPI = {
   updateClient: (id, clientData) => api.put(`/clients/${id}`, clientData),
   deleteClient: (id) => api.delete(`/clients/${id}`),
   bulkImport: (data) => api.post('/clients/bulk-import', data),
+  bulkDelete: (data) => api.post('/clients/bulk-delete', data),
+  exportClients: () => api.get('/clients/export'),
 };
 
 // ============================================================================

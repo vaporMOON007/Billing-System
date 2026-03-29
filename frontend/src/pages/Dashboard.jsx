@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileText, TrendingUp, IndianRupee, Clock, Plus } from 'lucide-react';
-import { formatCurrency, formatDate, getFinancialYear } from '../utils/helpers';
+import { formatCurrency, formatDate, getFinancialYear, getYearOptions } from '../utils/helpers';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 import api from '../services/api';
@@ -288,13 +288,12 @@ const Dashboard = () => {
     },
   ];
 
-  // Financial year options
-  const fyOptions = [];
+  // Financial year options — same range as ServiceRow (2018-19 → current FY)
   const currentYear = new Date().getFullYear();
-  for (let i = currentYear - 3; i <= currentYear + 1; i++) {
-    const fy = `${i}-${String(i + 1).slice(-2)}`;
-    fyOptions.push({ value: fy, label: `FY ${fy}` });
-  }
+  const fyOptions = [
+    { value: '', label: 'All FYs' },
+    ...getYearOptions().map(fy => ({ value: fy, label: fy }))
+  ];
 
   // Month options
   const monthOptions = [

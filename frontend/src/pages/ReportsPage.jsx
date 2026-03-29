@@ -8,7 +8,7 @@ import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 import { reportAPI, masterAPI } from '../services/api';
 import api from '../services/api';
-import { formatCurrency } from '../utils/helpers';
+import { formatCurrency, getYearOptions } from '../utils/helpers';
 
 // ── small summary card ────────────────────────────────────────────────────
 const KPICard = ({ icon: Icon, label, value, color }) => (
@@ -53,17 +53,8 @@ export default function ReportsPage() {
   const [onlyFinalized, setOnlyFinalized] = useState(false);
   const [clientSearch,  setClientSearch]  = useState('');
 
-  // ── financial year options ───────────────────────────────────────────
-  const fyOptions = (() => {
-    const opts = [];
-    const now = new Date();
-    const curFyStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-    for (let i = 0; i < 3; i++) {
-      const s = curFyStart - i;
-      opts.push(`${s}-${String(s + 1).slice(-2)}`);
-    }
-    return opts;
-  })();
+  // ── financial year options — same range as ServiceRow (2018-19 → current FY)
+  const fyOptions = getYearOptions();
 
   // ── load ─────────────────────────────────────────────────────────────
   const load = async () => {

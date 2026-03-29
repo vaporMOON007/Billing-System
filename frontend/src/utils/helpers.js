@@ -32,12 +32,17 @@ export const getFinancialYear = (date) => {
 
 // Generate year options for dropdown
 export const getYearOptions = () => {
-  const currentYear = new Date().getFullYear();
-  const years = [];
-  for (let i = currentYear - 5; i <= currentYear + 5; i++) {
-    years.push(i.toString());
+  const today = new Date();
+  const month = today.getMonth() + 1; // 1-based
+  const year = today.getFullYear();
+  // Current FY end year: if April or later, current year is FY start → end = year+1
+  const currentFYEnd = month >= 4 ? year + 1 : year;
+  const startFYEnd = 2019; // FY 2018-19
+  const fyOptions = [];
+  for (let endYear = startFYEnd; endYear <= currentFYEnd; endYear++) {
+    fyOptions.push(`${endYear - 1}-${String(endYear).slice(-2)}`);
   }
-  return years;
+  return fyOptions;
 };
 
 // Calculate GST amount

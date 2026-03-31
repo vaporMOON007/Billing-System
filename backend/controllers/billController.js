@@ -252,7 +252,11 @@ exports.getAllBills = async (req, res) => {
 
     // Get total count
     const countResult = await query(
-      `SELECT COUNT(*) FROM bills b ${whereClause.split('ORDER BY')[0]}`,
+      `SELECT COUNT(*) FROM bills b
+      LEFT JOIN header_master h ON b.header_id = h.id
+      LEFT JOIN clients_master c ON b.client_id = c.id
+      LEFT JOIN users u ON b.created_by = u.id
+      ${whereClause.split('ORDER BY')[0]}`,
       params.slice(0, -2)
     );
 

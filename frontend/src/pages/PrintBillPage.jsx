@@ -369,6 +369,30 @@ const PrintBillPage = () => {
     }
   };
 
+  // Write-off triggered from inside the Override Payments modal
+  const handleWriteOffFromModal = async () => {
+    if (!overridePaymentsBill) return;
+    setWritingOff(true);
+    try {
+      const res = await billAPI.writeOffBill(overridePaymentsBill.id, { notes: writeOffNotes });
+      toast.success(res.data.message);
+      setWriteOffNotes('');
+      setShowOverridePaymentsModal(false);
+      setOverridePaymentsBill(null);
+      setOverridePayments([]);
+      setEditingPayments({});
+      loadBills();
+      if (selectedBill && selectedBill.id === overridePaymentsBill.id) {
+        const updated = await billAPI.getBillById(overridePaymentsBill.id);
+        setSelectedBill(updated.data.data);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to apply write-off');
+    } finally {
+      setWritingOff(false);
+    }
+  };
+
   const handleWriteOff = async () => {
     setWritingOff(true);
     try {
@@ -999,7 +1023,7 @@ const PrintBillPage = () => {
                           {formatCurrency(bill.total_paid || 0)}
                         </td>
                         <td className="px-3 py-2 whitespace-nowrap text-xs text-red-600 font-medium text-right">
-                          {formatCurrency((bill.total_invoice_value || 0) - (bill.total_paid || 0))}
+                          {formatCurrency(Math.max(0, (bill.total_invoice_value || 0) - (bill.total_paid || 0) - parseFloat(bill.writeoff_amount || 0)))}
                         </td>
                         <td className="px-3 py-2 whitespace-nowrap text-center">
                           <div className="flex items-center justify-center gap-1.5 flex-wrap">
@@ -1221,7 +1245,14 @@ const PrintBillPage = () => {
                 {/* Override Edit — SUPERADMIN only, for finalized/paid bills */}
                 {user?.role === 'SUPERADMIN' && (selectedBill.status === 'FINALIZED' || selectedBill.status === 'PAID') && (
                 <button
-                  onClick={() => navigate('/services-form', { state: { editBill: selectedBill, overrideMode: true } })}
+                  onClick={async () => {
+                    try {
+                      const res = await billAPI.getBillById(selectedBill.id);
+                      navigate('/services-form', { state: { editBill: res.data.data, overrideMode: true } });
+                    } catch {
+                      toast.error('Failed to load bill details');
+                    }
+                  }}
                   className="flex items-center space-x-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors"
                 >
                   <Edit className="w-4 h-4" />
@@ -1258,7 +1289,7 @@ const PrintBillPage = () => {
                     <span>{selectedBill.payment_status === 'PAID' ? 'Fully Paid ✓' : 'Mark Payment'}</span>
                   </button>
                 )}
-                {user?.role === 'SUPERADMIN' && selectedBill.status === 'FINALIZED' && selectedBill.payment_status === 'PARTIAL' && !selectedBill.writeoff_amount && (
+                {user?.role === 'SUPERADMIN' && selectedBill.status === 'FINALIZED' && selectedBill.payment_status === 'PARTIAL' && parseFloat(selectedBill.writeoff_amount || 0) === 0 && (
                   <button
                     onClick={() => setShowWriteOffModal(true)}
                     className="flex items-center space-x-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
@@ -1402,7 +1433,9 @@ const PrintBillPage = () => {
                           </td>
                           <td className="border border-gray-300 px-4 py-2 text-sm">
                             {service.service_year
-                              ? `${parseInt(service.service_year) - 1}-${String(service.service_year).slice(-2)}`
+                              ? /^\d{4}$/.test(service.service_year)
+                                ? `${parseInt(service.service_year) - 1}-${String(service.service_year).slice(-2)}`
+                                : service.service_year
                               : '—'}
                           </td>
                           <td className="border border-gray-300 px-4 py-2 text-sm text-right">
@@ -1624,6 +1657,9 @@ const PrintBillPage = () => {
         billId={selectedBillForPayment?.id}
         billNo={selectedBillForPayment?.bill_no}
         totalAmount={selectedBillForPayment?.total_invoice_value}
+        writeoffAmount={selectedBillForPayment?.writeoff_amount}
+        writeoffDate={selectedBillForPayment?.writeoff_date}
+        writeoffNotes={selectedBillForPayment?.writeoff_notes}
       />
 
       {/* Print Preview Modal */}
@@ -2161,6 +2197,39 @@ const PrintBillPage = () => {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {/* ── Write-Off section (PARTIAL bills only) ── */}
+          {overridePaymentsBill &&
+           overridePaymentsBill.payment_status === 'PARTIAL' &&
+           parseFloat(overridePaymentsBill.writeoff_amount || 0) === 0 && (
+            <div className="border border-orange-200 rounded-lg p-4 bg-orange-50/40 mt-2">
+              <p className="text-sm font-semibold text-orange-800 mb-1">Write Off Remaining Balance</p>
+              <p className="text-xs text-orange-700 mb-3">
+                Outstanding:{' '}
+                <strong>
+                  ₹{(parseFloat(overridePaymentsBill.total_invoice_value) - parseFloat(overridePaymentsBill.total_paid || 0)).toFixed(2)}
+                </strong>
+                {' '}— this will be written off and the bill will be marked as <strong>Paid</strong>. This cannot be undone.
+              </p>
+              <textarea
+                value={writeOffNotes}
+                onChange={e => setWriteOffNotes(e.target.value)}
+                rows={2}
+                placeholder="Reason for write-off (optional)..."
+                className="w-full px-3 py-2 border border-orange-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white mb-3"
+              />
+              <button
+                onClick={handleWriteOffFromModal}
+                disabled={writingOff}
+                className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white text-sm font-semibold rounded-lg hover:bg-orange-700 disabled:opacity-50 transition-colors"
+              >
+                {writingOff
+                  ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /><span>Processing...</span></>
+                  : 'Confirm Write-Off'
+                }
+              </button>
             </div>
           )}
 

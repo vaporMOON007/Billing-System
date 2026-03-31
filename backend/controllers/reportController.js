@@ -6,176 +6,129 @@ const { query } = require('../config/database');
 exports.getDashboardKPIs = async (req, res) => {
   try {
     const {
-      date_from,
-      date_to,
-      financial_year,
-      month,
-      year,
-      header_id,
-      client_id,
-      payment_status,
-      only_finalized
+      date_from, date_to, financial_year, month, year,
+      header_id, client_id, payment_status, only_finalized
     } = req.query;
 
-    // only_finalized defaults to true (previous behaviour)
     const statusCondition = only_finalized === 'false'
       ? "b.status IN ('FINALIZED', 'DRAFT')"
       : "b.status = 'FINALIZED'";
 
-    let whereClause = 'WHERE 1=1';
+    const hasFy = !!financial_year;
     const params = [];
     let paramCount = 1;
 
-    // Build where clause based on filters
-    if (financial_year) {
-      whereClause += ` AND b.financial_year = $${paramCount}`;
-      params.push(financial_year);
-      paramCount++;
-    }
+    // When FY filter: $1 = financial_year (used in subquery)
+    if (hasFy) { params.push(financial_year); paramCount++; }
 
-    if (date_from) {
-      whereClause += ` AND b.bill_date >= $${paramCount}`;
-      params.push(date_from);
-      paramCount++;
-    }
+    // Bill-level filters (applied on outer query)
+    let outerWhere = 'WHERE 1=1';
+    if (date_from)       { outerWhere += ` AND b.bill_date >= $${paramCount}`;                            params.push(date_from);    paramCount++; }
+    if (date_to)         { outerWhere += ` AND b.bill_date <= $${paramCount}`;                            params.push(date_to);      paramCount++; }
+    if (month && year)   { outerWhere += ` AND EXTRACT(MONTH FROM b.bill_date) = $${paramCount}`;         params.push(month);        paramCount++;
+                           outerWhere += ` AND EXTRACT(YEAR FROM b.bill_date) = $${paramCount}`;          params.push(year);         paramCount++; }
+    if (header_id)       { outerWhere += ` AND b.header_id = $${paramCount}`;                             params.push(header_id);    paramCount++; }
+    if (client_id)       { outerWhere += ` AND b.client_id = $${paramCount}`;                             params.push(client_id);    paramCount++; }
+    if (payment_status)  { outerWhere += ` AND b.payment_status = $${paramCount}`;                        params.push(payment_status); paramCount++; }
 
-    if (date_to) {
-      whereClause += ` AND b.bill_date <= $${paramCount}`;
-      params.push(date_to);
-      paramCount++;
-    }
+    // ── FY-aware query parts ────────────────────────────────────────────
+    // When FY active: pre-aggregate service amounts per bill in a subquery
+    // so each bill row appears exactly once → SUM(b.total_paid) is correct.
+    const fySubquery = `
+      (SELECT bs.bill_id,
+              SUM(bs.amount * (1 + COALESCE(gr.rate_percentage, 0) / 100)) AS fy_billed
+       FROM bill_services bs
+       LEFT JOIN gst_rates_master gr ON gr.id = bs.gst_rate_id
+       WHERE bs.service_year = $1
+       GROUP BY bs.bill_id) fy_svc`;
 
-    if (month && year) {
-      whereClause += ` AND EXTRACT(MONTH FROM b.bill_date) = $${paramCount}`;
-      params.push(month);
-      paramCount++;
-      whereClause += ` AND EXTRACT(YEAR FROM b.bill_date) = $${paramCount}`;
-      params.push(year);
-      paramCount++;
-    }
+    const fromBlock = hasFy
+      ? `FROM ${fySubquery}
+         JOIN bills b             ON b.id = fy_svc.bill_id
+         LEFT JOIN header_master h  ON h.id = b.header_id
+         LEFT JOIN clients_master c ON c.id = b.client_id`
+      : `FROM bills b
+         LEFT JOIN header_master h  ON h.id = b.header_id
+         LEFT JOIN clients_master c ON c.id = b.client_id`;
 
-    if (header_id) {
-      whereClause += ` AND b.header_id = $${paramCount}`;
-      params.push(header_id);
-      paramCount++;
-    }
+    const billedExpr = hasFy
+      ? `COALESCE(SUM(fy_svc.fy_billed), 0)`
+      : `COALESCE(SUM(b.total_invoice_value), 0)`;
 
-    if (client_id) {
-      whereClause += ` AND b.client_id = $${paramCount}`;
-      params.push(client_id);
-      paramCount++;
-    }
-
-    if (payment_status) {
-      whereClause += ` AND b.payment_status = $${paramCount}`;
-      params.push(payment_status);
-      paramCount++;
-    }
-
-    // Get overall summary
+    // Summary
     const summaryResult = await query(
       `SELECT
-        COUNT(*) as total_bills,
-        COALESCE(SUM(total_invoice_value), 0) as total_billed,
-        COALESCE(SUM(total_paid), 0) as total_paid,
-        COALESCE(SUM(total_invoice_value - COALESCE(total_paid, 0)), 0) as total_outstanding
-      FROM bills b
-      ${whereClause} AND ${statusCondition}`,
+        COUNT(DISTINCT b.id)                                             AS total_bills,
+        ${billedExpr}                                                    AS total_billed,
+        COALESCE(SUM(b.total_paid), 0)                                  AS total_paid,
+        COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid,0)),0) AS total_outstanding
+       ${fromBlock}
+       ${outerWhere} AND ${statusCondition}`,
       params
     );
 
     const summary = summaryResult.rows[0];
-    const collectionRate = summary.total_billed > 0 
+    const collectionRate = summary.total_billed > 0
       ? ((summary.total_paid / summary.total_billed) * 100).toFixed(2)
       : 0;
 
-    // Get company-wise breakdown
+    // Company breakdown
     const companyResult = await query(
       `SELECT
         h.id,
         h.company_name,
-        COUNT(b.id) as bill_count,
-        COALESCE(SUM(b.total_invoice_value), 0) as total_billed,
-        COALESCE(SUM(b.total_paid), 0) as total_paid,
-        COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid, 0)), 0) as outstanding
-      FROM bills b
-      LEFT JOIN header_master h ON b.header_id = h.id
-      ${whereClause} AND ${statusCondition}
-      GROUP BY h.id, h.company_name
-      ORDER BY outstanding DESC`,
+        COUNT(DISTINCT b.id)                                             AS bill_count,
+        ${billedExpr}                                                    AS total_billed,
+        COALESCE(SUM(b.total_paid), 0)                                  AS total_paid,
+        COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid,0)),0) AS outstanding
+       ${fromBlock}
+       ${outerWhere} AND ${statusCondition}
+       GROUP BY h.id, h.company_name
+       ORDER BY outstanding DESC`,
       params
     );
 
-    // Get client-wise breakdown
+    // Client breakdown
     const clientResult = await query(
       `SELECT
         c.id,
         c.client_name,
-        COUNT(b.id) as bill_count,
-        COALESCE(SUM(b.total_invoice_value), 0) as total_billed,
-        COALESCE(SUM(b.total_paid), 0) as total_paid,
-        COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid, 0)), 0) as outstanding
-      FROM bills b
-      LEFT JOIN clients_master c ON b.client_id = c.id
-      ${whereClause} AND b.client_id IS NOT NULL AND ${statusCondition}
-      GROUP BY c.id, c.client_name
-      ORDER BY outstanding DESC
-      LIMIT 10`,
+        COUNT(DISTINCT b.id)                                             AS bill_count,
+        ${billedExpr}                                                    AS total_billed,
+        COALESCE(SUM(b.total_paid), 0)                                  AS total_paid,
+        COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid,0)),0) AS outstanding
+       ${fromBlock}
+       ${outerWhere} AND b.client_id IS NOT NULL AND ${statusCondition}
+       GROUP BY c.id, c.client_name
+       ORDER BY outstanding DESC
+       LIMIT 10`,
       params
     );
 
-    // Get aging analysis
+    // Aging (bill-level — payment timing is independent of service FY)
     const agingResult = await query(
       `SELECT
-        SUM(CASE
-          WHEN CURRENT_DATE - b.due_date BETWEEN 0 AND 30
-          THEN b.total_invoice_value - COALESCE(b.total_paid, 0)
-          ELSE 0
-        END) as "0-30",
-        SUM(CASE
-          WHEN CURRENT_DATE - b.due_date BETWEEN 31 AND 60
-          THEN b.total_invoice_value - COALESCE(b.total_paid, 0)
-          ELSE 0
-        END) as "31-60",
-        SUM(CASE
-          WHEN CURRENT_DATE - b.due_date BETWEEN 61 AND 90
-          THEN b.total_invoice_value - COALESCE(b.total_paid, 0)
-          ELSE 0
-        END) as "61-90",
-        SUM(CASE
-          WHEN CURRENT_DATE - b.due_date > 90
-          THEN b.total_invoice_value - COALESCE(b.total_paid, 0)
-          ELSE 0
-        END) as "90+"
-      FROM bills b
-      ${whereClause} AND b.payment_status != 'PAID' AND ${statusCondition} AND b.due_date < CURRENT_DATE`,
+        COALESCE(SUM(CASE WHEN CURRENT_DATE - b.due_date BETWEEN 0  AND 30  THEN b.total_invoice_value - COALESCE(b.total_paid,0) ELSE 0 END),0) AS "0-30",
+        COALESCE(SUM(CASE WHEN CURRENT_DATE - b.due_date BETWEEN 31 AND 60  THEN b.total_invoice_value - COALESCE(b.total_paid,0) ELSE 0 END),0) AS "31-60",
+        COALESCE(SUM(CASE WHEN CURRENT_DATE - b.due_date BETWEEN 61 AND 90  THEN b.total_invoice_value - COALESCE(b.total_paid,0) ELSE 0 END),0) AS "61-90",
+        COALESCE(SUM(CASE WHEN CURRENT_DATE - b.due_date > 90               THEN b.total_invoice_value - COALESCE(b.total_paid,0) ELSE 0 END),0) AS "90+"
+       ${fromBlock}
+       ${outerWhere} AND b.payment_status != 'PAID' AND ${statusCondition} AND b.due_date < CURRENT_DATE`,
       params
     );
 
     res.json({
       success: true,
       data: {
-        summary: {
-          ...summary,
-          collection_rate: parseFloat(collectionRate)
-        },
+        summary: { ...summary, collection_rate: parseFloat(collectionRate) },
         by_company: companyResult.rows,
         by_client: clientResult.rows,
-        aging_analysis: agingResult.rows[0] || {
-          "0-30": 0,
-          "31-60": 0,
-          "61-90": 0,
-          "90+": 0
-        }
+        aging_analysis: agingResult.rows[0] || { "0-30": 0, "31-60": 0, "61-90": 0, "90+": 0 }
       }
     });
   } catch (error) {
     console.error('Get dashboard KPIs error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch dashboard data',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Failed to fetch dashboard data', error: error.message });
   }
 };
 
@@ -557,105 +510,111 @@ exports.getReceivables = async (req, res) => {
   try {
     const { financial_year, date_from, date_to, only_finalized } = req.query;
 
-    // only_finalized defaults to true (same as previous behaviour)
     const statusFilter = only_finalized === 'false'
       ? "b.status IN ('FINALIZED', 'DRAFT')"
       : "b.status = 'FINALIZED'";
 
-    let whereClause = `WHERE ${statusFilter}`;
+    const hasFy = !!financial_year;
     const params = [];
     let paramCount = 1;
 
-    if (financial_year) {
-      whereClause += ` AND b.financial_year = $${paramCount}`;
-      params.push(financial_year);
-      paramCount++;
-    }
-    if (date_from) {
-      whereClause += ` AND b.bill_date >= $${paramCount}`;
-      params.push(date_from);
-      paramCount++;
-    }
-    if (date_to) {
-      whereClause += ` AND b.bill_date <= $${paramCount}`;
-      params.push(date_to);
-      paramCount++;
-    }
+    // FY param first ($1) — used inside the subquery
+    if (hasFy) { params.push(financial_year); paramCount++; }
 
-    // Summary totals
+    let outerWhere = `WHERE ${statusFilter}`;
+    if (date_from) { outerWhere += ` AND b.bill_date >= $${paramCount}`; params.push(date_from); paramCount++; }
+    if (date_to)   { outerWhere += ` AND b.bill_date <= $${paramCount}`; params.push(date_to);   paramCount++; }
+
+    // ── FY-aware query parts (same pattern as getDashboardKPIs) ──────────
+    const fySubquery = `
+      (SELECT bs.bill_id,
+              SUM(bs.amount * (1 + COALESCE(gr.rate_percentage, 0) / 100)) AS fy_billed
+       FROM bill_services bs
+       LEFT JOIN gst_rates_master gr ON gr.id = bs.gst_rate_id
+       WHERE bs.service_year = $1
+       GROUP BY bs.bill_id) fy_svc`;
+
+    const fromBlock = hasFy
+      ? `FROM ${fySubquery}
+         JOIN bills b              ON b.id = fy_svc.bill_id
+         LEFT JOIN header_master h   ON h.id = b.header_id
+         LEFT JOIN clients_master c  ON c.id = b.client_id`
+      : `FROM bills b
+         LEFT JOIN header_master h   ON h.id = b.header_id
+         LEFT JOIN clients_master c  ON c.id = b.client_id`;
+
+    const billedExpr = hasFy
+      ? `COALESCE(SUM(fy_svc.fy_billed), 0)`
+      : `COALESCE(SUM(b.total_invoice_value), 0)`;
+
+    // Summary
     const summaryResult = await query(
       `SELECT
-        COUNT(*)                                                          AS total_bills,
-        COALESCE(SUM(b.total_invoice_value), 0)                         AS total_billed,
-        COALESCE(SUM(b.total_paid), 0)                                   AS total_collected,
+        COUNT(DISTINCT b.id)                                              AS total_bills,
+        ${billedExpr}                                                     AS total_billed,
+        COALESCE(SUM(b.total_paid), 0)                                    AS total_collected,
         COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid,0)),0) AS total_outstanding
-       FROM bills b ${whereClause}`,
+       ${fromBlock} ${outerWhere}`,
       params
     );
 
-    // Company-wise (all, no limit)
+    // Company-wise
     const companyResult = await query(
       `SELECT
         h.id                                                              AS header_id,
         h.company_name,
-        COUNT(b.id)                                                       AS bill_count,
-        COALESCE(SUM(b.total_invoice_value), 0)                         AS total_billed,
-        COALESCE(SUM(b.total_paid), 0)                                   AS total_collected,
+        COUNT(DISTINCT b.id)                                              AS bill_count,
+        ${billedExpr}                                                     AS total_billed,
+        COALESCE(SUM(b.total_paid), 0)                                    AS total_collected,
         COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid,0)),0) AS outstanding,
-        COUNT(CASE WHEN b.payment_status = 'UNPAID'  THEN 1 END)        AS unpaid_count,
-        COUNT(CASE WHEN b.payment_status = 'PARTIAL' THEN 1 END)        AS partial_count,
-        COUNT(CASE WHEN b.payment_status = 'PAID'    THEN 1 END)        AS paid_count
-       FROM bills b
-       LEFT JOIN header_master h ON b.header_id = h.id
-       ${whereClause}
+        COUNT(CASE WHEN b.payment_status = 'UNPAID'  THEN 1 END)         AS unpaid_count,
+        COUNT(CASE WHEN b.payment_status = 'PARTIAL' THEN 1 END)         AS partial_count,
+        COUNT(CASE WHEN b.payment_status = 'PAID'    THEN 1 END)         AS paid_count
+       ${fromBlock} ${outerWhere}
        GROUP BY h.id, h.company_name
        ORDER BY outstanding DESC`,
       params
     );
 
-    // Client-wise (all, no limit)
+    // Client-wise
     const clientResult = await query(
       `SELECT
         c.id                                                              AS client_id,
         c.client_name,
-        COUNT(b.id)                                                       AS bill_count,
-        COALESCE(SUM(b.total_invoice_value), 0)                         AS total_billed,
-        COALESCE(SUM(b.total_paid), 0)                                   AS total_collected,
+        COUNT(DISTINCT b.id)                                              AS bill_count,
+        ${billedExpr}                                                     AS total_billed,
+        COALESCE(SUM(b.total_paid), 0)                                    AS total_collected,
         COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid,0)),0) AS outstanding,
-        COUNT(CASE WHEN b.payment_status = 'UNPAID'  THEN 1 END)        AS unpaid_count,
-        COUNT(CASE WHEN b.payment_status = 'PARTIAL' THEN 1 END)        AS partial_count,
-        COUNT(CASE WHEN b.payment_status = 'PAID'    THEN 1 END)        AS paid_count
-       FROM bills b
-       LEFT JOIN clients_master c ON b.client_id = c.id
-       ${whereClause}
+        COUNT(CASE WHEN b.payment_status = 'UNPAID'  THEN 1 END)         AS unpaid_count,
+        COUNT(CASE WHEN b.payment_status = 'PARTIAL' THEN 1 END)         AS partial_count,
+        COUNT(CASE WHEN b.payment_status = 'PAID'    THEN 1 END)         AS paid_count
+       ${fromBlock} ${outerWhere}
        GROUP BY c.id, c.client_name
        ORDER BY outstanding DESC`,
       params
     );
 
-    // Aging buckets (outstanding only)
+    // Aging (bill-level)
     const agingResult = await query(
       `SELECT
         COALESCE(SUM(CASE WHEN CURRENT_DATE - b.due_date BETWEEN 0  AND 30  THEN b.total_invoice_value - COALESCE(b.total_paid,0) ELSE 0 END),0) AS "0_30",
         COALESCE(SUM(CASE WHEN CURRENT_DATE - b.due_date BETWEEN 31 AND 60  THEN b.total_invoice_value - COALESCE(b.total_paid,0) ELSE 0 END),0) AS "31_60",
         COALESCE(SUM(CASE WHEN CURRENT_DATE - b.due_date BETWEEN 61 AND 90  THEN b.total_invoice_value - COALESCE(b.total_paid,0) ELSE 0 END),0) AS "61_90",
         COALESCE(SUM(CASE WHEN CURRENT_DATE - b.due_date > 90               THEN b.total_invoice_value - COALESCE(b.total_paid,0) ELSE 0 END),0) AS "90_plus"
-       FROM bills b
-       ${whereClause} AND b.payment_status != 'PAID' AND b.due_date IS NOT NULL`,
+       ${fromBlock} ${outerWhere} AND b.payment_status != 'PAID' AND b.due_date IS NOT NULL`,
       params
     );
 
-    // Monthly collection summary (last 12 months)
+    // Monthly (always bill-level, no FY attribution needed)
     const monthlyResult = await query(
       `SELECT
-        TO_CHAR(b.bill_date, 'Mon YYYY')                                 AS month_label,
-        TO_CHAR(b.bill_date, 'YYYY-MM')                                  AS month_sort,
-        COALESCE(SUM(b.total_invoice_value), 0)                         AS billed,
+        TO_CHAR(b.bill_date, 'Mon YYYY') AS month_label,
+        TO_CHAR(b.bill_date, 'YYYY-MM')  AS month_sort,
+        COALESCE(SUM(b.total_invoice_value), 0)                          AS billed,
         COALESCE(SUM(b.total_paid), 0)                                   AS collected,
         COALESCE(SUM(b.total_invoice_value - COALESCE(b.total_paid,0)),0) AS outstanding
        FROM bills b
-       WHERE b.status = 'FINALIZED'
-         AND b.bill_date >= CURRENT_DATE - INTERVAL '12 months'
+       WHERE b.status = 'FINALIZED' AND b.bill_date >= CURRENT_DATE - INTERVAL '12 months'
        GROUP BY month_label, month_sort
        ORDER BY month_sort ASC`
     );
@@ -663,7 +622,7 @@ exports.getReceivables = async (req, res) => {
     res.json({
       success: true,
       data: {
-        summary:  summaryResult.rows[0],
+        summary:    summaryResult.rows[0],
         by_company: companyResult.rows,
         by_client:  clientResult.rows,
         aging:      agingResult.rows[0],

@@ -73,6 +73,7 @@ const Dashboard = () => {
       setClients(clientsRes.data.data);
     } catch (error) {
       console.error('Failed to load master data:', error);
+      toast.error('Failed to load filter data');
     }
   };
 
@@ -138,12 +139,14 @@ const Dashboard = () => {
         'Invoice Amount', 'Total Paid', 'Balance', 'Bill Status', 'Payment Status',
         'Payment Date', 'Payment Amount', 'Payment Mode',
         'UTR / Ref No', 'Cheque No', 'Collected By',
-        'Received In Bank', 'Account Holder', 'Account Number'
+        'Received In Bank', 'Account Holder', 'Account Number',
+        'Write-off Amount', 'Write-off Date', 'Write-off Notes'
       ];
 
       const billsToRows = (billList) => {
         const rows = [];
         billList.forEach(bill => {
+          const writeoffAmt = parseFloat(bill.writeoff_amount || 0);
           const base = [
             bill.bill_no,
             bill.bill_date    ? new Date(bill.bill_date)    : '',
@@ -156,8 +159,13 @@ const Dashboard = () => {
             bill.status,
             bill.payment_status || 'UNPAID',
           ];
+          const writeoffCols = [
+            writeoffAmt > 0 ? writeoffAmt : '',
+            writeoffAmt > 0 && bill.writeoff_date ? new Date(bill.writeoff_date) : '',
+            bill.writeoff_notes || '',
+          ];
           if (bill.payments && bill.payments.length > 0) {
-            bill.payments.forEach(pmt => {
+            bill.payments.forEach((pmt, idx) => {
               rows.push([
                 ...base,
                 pmt.payment_date ? new Date(pmt.payment_date) : '',
@@ -169,10 +177,12 @@ const Dashboard = () => {
                 pmt.received_in_bank          || '',
                 pmt.received_account_holder   || '',
                 pmt.received_account_number   || '',
+                // Show write-off only on first payment row to avoid repetition
+                ...(idx === 0 ? writeoffCols : ['', '', '']),
               ]);
             });
           } else {
-            rows.push([...base, '', '', '', '', '', '', '', '', '']);
+            rows.push([...base, '', '', '', '', '', '', '', '', '', ...writeoffCols]);
           }
         });
         return rows;
@@ -183,16 +193,18 @@ const Dashboard = () => {
       const totalsRow  = [
         'TOTAL', '', '', '', '',
         totals.total_billed, totals.total_paid, totals.total_balance,
-        '', '', '', '', '', '', '', '', '', '', ''
+        '', '', '', '', '', '', '', '', '', '', '',
+        totals.total_writeoff || 0, '', ''
       ];
       const mainData   = [HEADERS, ...mainRows, totalsRow];
       const mainSheet  = XLSX.utils.aoa_to_sheet(mainData);
 
-      // Date format for date columns (B, C, K = indices 1, 2, 10)
+      // Date cols: B(1), C(2), K(10), U(20=write-off date)
       const dateFmt = 'dd/mm/yyyy';
-      const dateColIndices = [1, 2, 10];
+      const dateColIndices = [1, 2, 10, 20];
       const numFmt   = '#,##0.00';
-      const amtColIndices = [5, 6, 7, 11];
+      // Amt cols: F(5), G(6), H(7), L(11), T(19=write-off amount)
+      const amtColIndices = [5, 6, 7, 11, 19];
 
       // Apply column widths
       mainSheet['!cols'] = [
@@ -215,6 +227,9 @@ const Dashboard = () => {
         { wch: 22 }, // Bank
         { wch: 22 }, // Account Holder
         { wch: 20 }, // Account Number
+        { wch: 16 }, // Write-off Amount
+        { wch: 14 }, // Write-off Date
+        { wch: 28 }, // Write-off Notes
       ];
 
       // Format cells

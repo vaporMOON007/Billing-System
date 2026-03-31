@@ -196,16 +196,24 @@ const ServicesFormPage = () => {
     });
 
     if (bill.services && bill.services.length > 0) {
-      setServices(bill.services.map(s => ({
-        id: s.id,
-        particulars_id: s.particulars_id?.toString() || '',
-        particulars_other: s.particulars_other || '',
-        description: s.description || '',
-        service_date: s.service_date,
-        service_year: s.service_year,
-        amount: parseFloat(s.amount),
-        gst_rate_id: s.gst_rate_id?.toString() || '',
-      })));
+      setServices(bill.services.map(s => {
+        // Normalise legacy service_year: "2025" → "2024-25"
+        let sy = s.service_year || '';
+        if (sy && /^\d{4}$/.test(sy)) {
+          const end = parseInt(sy);
+          sy = `${end - 1}-${String(end).slice(-2)}`;
+        }
+        return {
+          id: s.id,
+          particulars_id: s.particulars_id?.toString() || '',
+          particulars_other: s.particulars_other || '',
+          description: s.description || '',
+          service_date: s.service_date ? s.service_date.split('T')[0] : '',
+          service_year: sy,
+          amount: parseFloat(s.amount),
+          gst_rate_id: s.gst_rate_id?.toString() || '',
+        };
+      }));
     }
   }, [location.state, clients]);
 
@@ -216,7 +224,7 @@ const ServicesFormPage = () => {
         particulars_id: '',
         particulars_other: '',
         service_date: '',
-        service_year: new Date().getFullYear().toString(),
+        service_year: (() => { const t = new Date(); const m = t.getMonth()+1; const y = t.getFullYear(); return m>=4 ? `${y}-${String(y+1).slice(-2)}` : `${y-1}-${String(y).slice(-2)}`; })(),
         amount: 0,
         gst_rate_id: defaultGstRateId,
       },
@@ -290,6 +298,7 @@ const ServicesFormPage = () => {
       setClients(response.data.data);
     } catch (error) {
       console.error('Failed to search clients:', error);
+      toast.error('Failed to search clients');
     }
   }, 200);
 

@@ -1,10 +1,19 @@
 import { useEffect, useState } from 'react';
-import { X, IndianRupee, Calendar, User, CreditCard, Hash, Banknote, Building2 } from 'lucide-react';
+import { X, IndianRupee, Calendar, User, CreditCard, Hash, Banknote, Building2, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 import api from '../../services/api';
 
-const PaymentHistoryPopup = ({ isOpen, onClose, billId, billNo, totalAmount }) => {
+const PaymentHistoryPopup = ({
+  isOpen,
+  onClose,
+  billId,
+  billNo,
+  totalAmount,
+  writeoffAmount,
+  writeoffDate,
+  writeoffNotes,
+}) => {
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -30,7 +39,8 @@ const PaymentHistoryPopup = ({ isOpen, onClose, billId, billNo, totalAmount }) =
   if (!isOpen) return null;
 
   const totalPaid = payments.reduce((sum, p) => sum + parseFloat(p.amount_paid), 0);
-  const balance = parseFloat(totalAmount) - totalPaid;
+  const writtenOff = parseFloat(writeoffAmount || 0);
+  const balance = parseFloat(totalAmount) - totalPaid - writtenOff;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
@@ -73,7 +83,7 @@ const PaymentHistoryPopup = ({ isOpen, onClose, billId, billNo, totalAmount }) =
               </div>
             ) : (
               <>
-                {/* Summary */}
+                {/* Summary cards */}
                 <div className="grid grid-cols-3 gap-4 mb-6">
                   <div className="bg-blue-50 rounded-lg p-4">
                     <p className="text-xs text-blue-600 font-medium mb-1">Total Invoice</p>
@@ -86,21 +96,33 @@ const PaymentHistoryPopup = ({ isOpen, onClose, billId, billNo, totalAmount }) =
                     <p className="text-xl font-bold text-green-900">
                       {formatCurrency(totalPaid)}
                     </p>
+                    {writtenOff > 0 && (
+                      <p className="text-xs text-orange-600 mt-1">
+                        + {formatCurrency(writtenOff)} written off
+                      </p>
+                    )}
                   </div>
-                  <div className="bg-red-50 rounded-lg p-4">
-                    <p className="text-xs text-red-600 font-medium mb-1">Balance Due</p>
-                    <p className="text-xl font-bold text-red-900">
-                      {formatCurrency(balance)}
+                  <div className={`rounded-lg p-4 ${balance <= 0 ? 'bg-gray-50' : 'bg-red-50'}`}>
+                    <p className={`text-xs font-medium mb-1 ${balance <= 0 ? 'text-gray-500' : 'text-red-600'}`}>
+                      Balance Due
                     </p>
+                    <p className={`text-xl font-bold ${balance <= 0 ? 'text-gray-400 line-through' : 'text-red-900'}`}>
+                      {formatCurrency(Math.max(0, balance))}
+                    </p>
+                    {balance <= 0 && writtenOff > 0 && (
+                      <p className="text-xs text-orange-600 mt-1">Write-off applied</p>
+                    )}
                   </div>
                 </div>
 
-                {/* Payment List */}
-                {payments.length > 0 ? (
+                {/* Payment transactions */}
+                {payments.length > 0 || writtenOff > 0 ? (
                   <div className="space-y-3">
                     <h4 className="text-sm font-semibold text-gray-700 mb-2">
-                      Payment Transactions ({payments.length})
+                      Transactions ({payments.length + (writtenOff > 0 ? 1 : 0)})
                     </h4>
+
+                    {/* Regular payment entries */}
                     {payments.map((payment, index) => (
                       <div
                         key={payment.id}
@@ -181,6 +203,40 @@ const PaymentHistoryPopup = ({ isOpen, onClose, billId, billNo, totalAmount }) =
                         </div>
                       </div>
                     ))}
+
+                    {/* Write-off entry */}
+                    {writtenOff > 0 && (
+                      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle className="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <div className="flex items-center space-x-2 mb-2">
+                              <span className="px-2 py-1 bg-orange-100 text-orange-800 text-xs font-semibold rounded">
+                                Write-Off
+                              </span>
+                              <span className="text-lg font-bold text-orange-900">
+                                {formatCurrency(writtenOff)}
+                              </span>
+                              <span className="text-xs text-orange-600">(Balance written off)</span>
+                            </div>
+                            <div className="space-y-1 text-sm text-orange-800">
+                              {writeoffDate && (
+                                <div className="flex items-center space-x-2">
+                                  <Calendar className="w-4 h-4" />
+                                  <span>{formatDate(writeoffDate)}</span>
+                                </div>
+                              )}
+                              {writeoffNotes && (
+                                <div className="mt-2 p-2 bg-white rounded border border-orange-200">
+                                  <p className="text-xs text-orange-500">Reason:</p>
+                                  <p className="text-sm text-orange-700">{writeoffNotes}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="text-center py-8">

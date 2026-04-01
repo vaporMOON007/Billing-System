@@ -30,7 +30,7 @@ exports.bulkImportClients = async (req, res) => {
 
       try {
         // Validate required fields
-        if (!row.client_name || !row.contact_person || !row.phone) {
+        if (!row.client_name) {
           errors.push({
             row: rowNumber,
             client_name: row.client_name || 'Unknown',
@@ -40,7 +40,7 @@ exports.bulkImportClients = async (req, res) => {
         }
 
         // Validate phone
-        if (!/^[0-9]{10}$/.test(row.phone)) {
+        if (row.phone && !/^[0-9]{10}$/.test(row.phone)) {
           errors.push({
             row: rowNumber,
             client_name: row.client_name,

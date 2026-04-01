@@ -86,7 +86,8 @@ const MastersPage = () => {
         const full = res.data.data;
         // Flatten bank_details into the top level so form fields like
         // editingItem?.bank_name / account_number etc. work directly
-        setEditingItem({ ...full, ...(full.bank_details || {}) });
+        const { upi_id: _ignored, ...bankDetailsWithoutUpiId } = full.bank_details || {};
+        setEditingItem({ ...full, ...bankDetailsWithoutUpiId });
       } catch (err) {
         console.error('Failed to load company details:', err);
         toast.error('Failed to load company details');
@@ -574,6 +575,7 @@ const MastersPage = () => {
       <Modal
         isOpen={showModal}
         onClose={() => setShowModal(false)}
+        key={editingItem?.id || 'new'}  
         title={`${editingItem ? 'Edit' : 'Add New'} ${
           activeTab === 'company' ? 'Company' :
           activeTab === 'clients' ? 'Client' :
@@ -667,6 +669,7 @@ const MastersPage = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">UPI ID</label>
                   <input type="text" name="upi_id" defaultValue={editingItem?.upi_id}
+                    onChange={(e) => setEditingItem({ ...editingItem, upi_id: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
                 </div>
               </div>
@@ -736,7 +739,7 @@ const MastersPage = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Contact Person <span className="text-red-500">*</span>
+                      Contact Person 
                     </label>
                     <input 
                       type="text"
@@ -748,13 +751,12 @@ const MastersPage = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Phone <span className="text-red-500">*</span>
+                      Phone 
                     </label>
                     <input 
                       type="tel" 
                       name="phone" 
-                      defaultValue={editingItem?.phone} 
-                      required 
+                      defaultValue={editingItem?.phone}  
                       pattern="[0-9]{10}" 
                       maxLength={10}
                       placeholder="10 digit phone number"

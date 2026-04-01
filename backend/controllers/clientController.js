@@ -49,7 +49,7 @@ exports.createClient = async (req, res) => {
     }
 
     // Validate phone
-    if (!/^[0-9]{10}$/.test(phone)) {
+    if (phone && !/^[0-9]{10}$/.test(phone)) {
       return res.status(400).json({
         success: false,
         message: 'Phone number must be 10 digits'

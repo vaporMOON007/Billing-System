@@ -64,24 +64,22 @@ const ClientFormModal = ({ isOpen, onClose, onClientCreated, initialName = '' })
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Contact Person <span className="text-red-500">*</span>
+              Contact Person
             </label>
             <input 
               type="text" 
               name="contact_person" 
-              required
               placeholder="Enter contact person name"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" 
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Phone <span className="text-red-500">*</span>
+              Phone 
             </label>
             <input 
               type="tel" 
               name="phone" 
-              required 
               pattern="[0-9]{10}" 
               maxLength={10}
               placeholder="10 digit phone number"

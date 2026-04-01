@@ -772,12 +772,11 @@ const ServicesFormPage = () => {
             {/* Contact Person */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Contact Person <span className="text-red-500">*</span>
+                Contact Person 
               </label>
               <input
                 type="text"
                 name="contact_person"
-                required
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="Enter contact person name"
               />
@@ -786,12 +785,11 @@ const ServicesFormPage = () => {
             {/* Phone */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Phone <span className="text-red-500">*</span>
+                Phone 
               </label>
               <input
                 type="tel"
                 name="phone"
-                required
                 pattern="[0-9]{10}"
                 maxLength={10}
                 onInput={(e) => {

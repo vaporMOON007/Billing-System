@@ -12,7 +12,7 @@
 # ════════════════════════════════════════════════════════════════
 
 # Root folder of the project (folder that contains backend\ and frontend\)
-BILLING_SYSTEM_PATH = r"C:\Projects\Billing-System"
+BILLING_SYSTEM_PATH = r"C:\Users\Administrator\Desktop\Billing-System"
 
 # Full path to node.exe
 #   Run  `where node`  in cmd to find yours
@@ -123,7 +123,7 @@ def main():
     backend_proc = launch(
         label    = "Backend  (node server.js)",
         cwd      = BACKEND_DIR,
-        cmd_list = [NODE_EXE, "server.js"],
+        cmd_list = [NPM_CMD, "run", "start"],
         log_file = backend_log,
     )
 

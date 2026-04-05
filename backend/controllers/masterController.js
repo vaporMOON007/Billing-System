@@ -31,6 +31,20 @@ exports.createHeader = async (req, res) => {
     const gstinValue = gstin && gstin.trim() !== '' ? gstin.trim() : null;
     const panValue   = pan   && pan.trim()   !== '' ? pan.trim()   : null;
 
+    // Check bill_prefix uniqueness
+    if (bill_prefix) {
+      const prefixCheck = await query(
+        'SELECT id FROM header_master WHERE UPPER(bill_prefix) = UPPER($1)',
+        [bill_prefix]
+      );
+      if (prefixCheck.rows.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Bill prefix "${bill_prefix}" is already used by another company. Please choose a unique prefix.`
+        });
+      }
+    }
+
     await client.query('BEGIN');
 
     // Insert header
@@ -186,6 +200,20 @@ exports.getHeaderById = async (req, res) => {
 exports.updateHeader = async (req, res) => {
   const client = await require('../config/database').pool.connect();
   try {
+        // Check bill_prefix uniqueness if being updated
+    if (updates.bill_prefix) {
+      const prefixCheck = await query(
+        'SELECT id FROM header_master WHERE UPPER(bill_prefix) = UPPER($1) AND id != $2',
+        [updates.bill_prefix, id]
+      );
+      if (prefixCheck.rows.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Bill prefix "${updates.bill_prefix}" is already used by another company. Please choose a unique prefix.`
+        });
+      }
+    }
+
     await client.query('BEGIN');
 
     const { id } = req.params;
@@ -204,20 +232,21 @@ exports.updateHeader = async (req, res) => {
        SET company_name = COALESCE($1, company_name),
            proprietor_name = COALESCE($2, proprietor_name),
            address_line1 = COALESCE($3, address_line1),
-           city = COALESCE($4, city),
-           state = COALESCE($5, state),
-           pincode = COALESCE($6, pincode),
-           phone = COALESCE($7, phone),
-           email = COALESCE($8, email),
-           gstin = $9,
-           pan = $10,
-           bill_prefix = COALESCE($11, bill_prefix),
-           upi_id = COALESCE($12, upi_id),
+           address_line2 = COALESCE($4, address_line2),
+           city = COALESCE($5, city),
+           state = COALESCE($6, state),
+           pincode = COALESCE($7, pincode),
+           phone = COALESCE($8, phone),
+           email = COALESCE($9, email),
+           gstin = $10,
+           pan = $11,
+           bill_prefix = COALESCE($12, bill_prefix),
+           upi_id = COALESCE($13, upi_id),
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $13
        RETURNING *`,
       [updates.company_name, updates.proprietor_name, updates.address_line1,
-       updates.city, updates.state, updates.pincode, updates.phone,
+       updates.address_line2, updates.city, updates.state, updates.pincode, updates.phone,
        updates.email, updates.gstin, updates.pan, updates.bill_prefix, updates.upi_id, id]
     );
 
@@ -274,6 +303,18 @@ exports.updateHeader = async (req, res) => {
 exports.deleteHeader = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Check if any bills exist for this company
+    const billCheck = await query(
+      'SELECT COUNT(*) AS cnt FROM bills WHERE header_id = $1',
+      [id]
+    );
+    if (parseInt(billCheck.rows[0].cnt) > 0) {
+      return res.status(409).json({
+        success: false,
+        message: `Cannot delete — this company has ${billCheck.rows[0].cnt} bill(s) associated with it. Please reassign or delete those bills first.`
+      });
+    }
 
     const result = await query(
       'DELETE FROM header_master WHERE id = $1 RETURNING id',

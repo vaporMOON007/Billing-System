@@ -3,10 +3,24 @@ const express = require('express');
 const cors = require('cors');
 const { connectDB } = require('./config/database');
 
+// Boot-time guard: refuse to start if JWT_SECRET is missing.
+// Without this, tokens fall back to 'undefined' as the secret,
+// which is predictable and effectively disables authentication.
+if (!process.env.JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET environment variable is not set. Server will not start.');
+  process.exit(1);
+}
+
 const app = express();
 
 // Middleware
-app.use(cors());
+// CORS: restrict to the configured frontend origin in production.
+// Set CORS_ORIGIN in your .env (e.g. http://localhost:5173 for local dev,
+// or https://yourdomain.com for production). Falls back to all origins only
+// if explicitly not set — flag this in production.
+const allowedOrigin = process.env.CORS_ORIGIN;
+app.use(cors(allowedOrigin ? { origin: allowedOrigin } : {}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

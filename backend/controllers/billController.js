@@ -696,19 +696,54 @@ exports.finalizeBill = async (req, res) => {
   try {
     const { id } = req.params;
 
+    // --- Guard #9: check for services and non-zero value BEFORE the status update ---
+    // We read the bill first so we can return a meaningful error message.
+    const billCheck = await query(
+      `SELECT b.total_invoice_value, COUNT(bs.id) AS service_count
+       FROM bills b
+       LEFT JOIN bill_services bs ON bs.bill_id = b.id
+       WHERE b.id = $1
+       GROUP BY b.id, b.total_invoice_value`,
+      [id]
+    );
+
+    if (billCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Bill not found' });
+    }
+
+    const { total_invoice_value, service_count } = billCheck.rows[0];
+
+    if (parseInt(service_count) === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot finalize a bill with no services. Add at least one service line before finalizing.'
+      });
+    }
+    if (!total_invoice_value || parseFloat(total_invoice_value) <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot finalize a bill with zero value. The total invoice value must be greater than ₹0.'
+      });
+    }
+
+    // --- Fix #10: atomic check-and-set — only update if currently DRAFT ---
+    // If two users click Finalize simultaneously, only one UPDATE wins the
+    // WHERE status = 'DRAFT' condition. The other gets 0 rows and returns 409.
     const result = await query(
-      `UPDATE bills 
-       SET status = 'FINALIZED', 
+      `UPDATE bills
+       SET status     = 'FINALIZED',
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $1
+         AND status = 'DRAFT'
        RETURNING *`,
       [id]
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({
+      // Either already finalized (race condition) or some other status
+      return res.status(409).json({
         success: false,
-        message: 'Bill not found'
+        message: 'Bill could not be finalized — it may have already been finalized by another user, or is not in Draft status.'
       });
     }
 
@@ -755,45 +790,8 @@ exports.deleteBill = async (req, res) => {
       });
     }
 
-    // Auto-repair the broken delete trigger function (wrong column name total_amount → total_invoice_value).
-    // Safe to run on every delete call — CREATE OR REPLACE is idempotent.
-    await client.query(`
-      CREATE OR REPLACE FUNCTION update_bill_payment_status_on_delete()
-      RETURNS TRIGGER AS $$
-      DECLARE
-          v_total_invoice  NUMERIC;
-          v_total_paid     NUMERIC;
-          v_new_status     TEXT;
-      BEGIN
-          SELECT COALESCE(SUM(amount_paid), 0)
-          INTO v_total_paid
-          FROM bill_payments
-          WHERE bill_id = OLD.bill_id;
-
-          SELECT COALESCE(total_invoice_value, 0)
-          INTO v_total_invoice
-          FROM bills
-          WHERE id = OLD.bill_id;
-
-          IF v_total_paid <= 0 THEN
-              v_new_status := 'UNPAID';
-          ELSIF v_total_paid < v_total_invoice THEN
-              v_new_status := 'PARTIAL';
-          ELSE
-              v_new_status := 'PAID';
-          END IF;
-
-          UPDATE public.bills
-          SET payment_status = v_new_status,
-              total_paid     = v_total_paid,
-              updated_at     = CURRENT_TIMESTAMP
-          WHERE id = OLD.bill_id;
-
-          RETURN OLD;
-      END;
-      $$ LANGUAGE plpgsql;
-    `);
-
+    // Trigger function update_bill_payment_status_on_delete is now managed via
+    // migrations/003_fix_delete_trigger.sql — no longer patched on every request.
     await client.query('BEGIN');
 
     // Delete child records in dependency order to satisfy FK constraints
@@ -1716,6 +1714,8 @@ exports.unmergeBill = async (req, res) => {
 // @desc    Write off remaining balance on a FINALIZED PARTIAL bill
 // @route   POST /api/bills/:id/writeoff
 // @access  SUPERADMIN only
+// Write-off data is stored in the bill_writeoffs child table (migration 002),
+// NOT as columns on bills. This preserves the full audit trail.
 exports.writeOffBill = async (req, res) => {
   const dbClient = await require('../config/database').pool.connect();
   try {
@@ -1724,8 +1724,11 @@ exports.writeOffBill = async (req, res) => {
     const { notes } = req.body;
     const userId = req.user.id;
 
-    // Fetch the bill
-    const billResult = await dbClient.query('SELECT * FROM bills WHERE id = $1', [id]);
+    // Fetch the bill with a row lock to prevent concurrent write-offs
+    const billResult = await dbClient.query(
+      'SELECT * FROM bills WHERE id = $1 FOR UPDATE',
+      [id]
+    );
     if (billResult.rows.length === 0) {
       await dbClient.query('ROLLBACK');
       return res.status(404).json({ success: false, message: 'Bill not found' });
@@ -1739,36 +1742,52 @@ exports.writeOffBill = async (req, res) => {
     }
     if (bill.payment_status !== 'PARTIAL') {
       await dbClient.query('ROLLBACK');
-      return res.status(400).json({ success: false, message: 'Only partially paid bills can be written off' });
+      return res.status(400).json({
+        success: false,
+        message: 'Only partially paid bills can be written off. ' +
+                 `This bill's payment status is "${bill.payment_status}".`
+      });
     }
-    // Check if already written off
-    if (bill.writeoff_amount > 0) {
+
+    // Prevent duplicate write-offs for the same bill
+    const existingWriteoff = await dbClient.query(
+      'SELECT id FROM bill_writeoffs WHERE bill_id = $1',
+      [id]
+    );
+    if (existingWriteoff.rows.length > 0) {
       await dbClient.query('ROLLBACK');
       return res.status(400).json({ success: false, message: 'This bill has already been written off' });
     }
 
     const writeoffAmount = parseFloat(bill.total_invoice_value) - parseFloat(bill.total_paid || 0);
+    if (writeoffAmount <= 0) {
+      await dbClient.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'No outstanding balance to write off' });
+    }
 
-    // Update the bill
+    // Insert write-off record into the dedicated audit table
+    const writeoffResult = await dbClient.query(
+      `INSERT INTO bill_writeoffs (bill_id, writeoff_amount, written_off_by, writeoff_date, notes)
+       VALUES ($1, $2, $3, CURRENT_DATE, $4)
+       RETURNING *`,
+      [id, writeoffAmount, userId, notes || null]
+    );
+
+    // Mark the bill as fully PAID now that the remainder is written off
     await dbClient.query(
       `UPDATE bills
        SET payment_status = 'PAID',
-           writeoff_amount = $1,
-           writeoff_by = $2,
-           writeoff_date = CURRENT_DATE,
-           writeoff_notes = $3,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $4`,
-      [writeoffAmount, userId, notes || null, id]
+           updated_at     = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [id]
     );
 
     await dbClient.query('COMMIT');
 
-    // Log activity
     logActivity({
-      userId,
+      performedBy: userId,
       action: 'WRITE_OFF_BILL',
-      entityType: 'bill',
+      entityType: 'BILL',
       entityId: parseInt(id),
       description: `Wrote off ₹${writeoffAmount.toFixed(2)} on bill ${bill.bill_no || `DRAFT-${id}`}`,
       metadata: { writeoff_amount: writeoffAmount, bill_no: bill.bill_no, notes }
@@ -1777,7 +1796,7 @@ exports.writeOffBill = async (req, res) => {
     res.json({
       success: true,
       message: `Write-off of ₹${writeoffAmount.toFixed(2)} applied successfully`,
-      data: { writeoff_amount: writeoffAmount }
+      data: writeoffResult.rows[0]
     });
   } catch (error) {
     await dbClient.query('ROLLBACK').catch(() => {});

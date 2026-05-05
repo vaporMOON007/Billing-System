@@ -13,7 +13,9 @@ router.get('/bank-accounts', masterController.getBankAccounts);
 router.get('/headers', masterController.getAllHeaders);
 router.get('/headers/:id', masterController.getHeaderById);
 router.post('/headers', masterController.createHeader);
-router.put('/headers/:id', masterController.updateHeader);
+// Split update: general details (name, address, bank, etc.) vs prefix (restricted once bills exist)
+router.patch('/headers/:id/details', masterController.updateHeaderDetails);
+router.patch('/headers/:id/prefix', masterController.updateHeaderPrefix);
 router.delete('/headers/:id', masterController.deleteHeader);
 
 // Particulars (Services)

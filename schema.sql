@@ -144,13 +144,15 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Update bills.payment_status + total_paid after payment delete
+-- Authoritative version is in migrations/003_fix_delete_trigger.sql
+-- (added last_payment_date recalculation that was missing here)
 CREATE OR REPLACE FUNCTION update_bill_payment_status_on_delete()
 RETURNS TRIGGER AS $$
 DECLARE
     v_total_invoice  NUMERIC(15,2);
     v_total_paid     NUMERIC(15,2);
-    v_new_status     VARCHAR(20);
     v_last_date      DATE;
+    v_new_status     VARCHAR(20);
 BEGIN
     SELECT COALESCE(SUM(amount_paid), 0), MAX(payment_date)
     INTO v_total_paid, v_last_date
@@ -238,6 +240,8 @@ CREATE TABLE IF NOT EXISTS header_master (
 );
 
 CREATE INDEX IF NOT EXISTS idx_header_master_is_active ON header_master (is_active);
+-- Uniqueness enforced case-insensitively. Run migration 001 on existing databases.
+-- CREATE UNIQUE INDEX IF NOT EXISTS uidx_header_master_bill_prefix ON header_master (UPPER(bill_prefix));
 
 
 -- ----------------------------------------------------------------

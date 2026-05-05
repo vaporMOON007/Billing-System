@@ -194,71 +194,53 @@ exports.getHeaderById = async (req, res) => {
   }
 };
 
-// @desc    Update header
-// @route   PUT /api/masters/headers/:id
+// @desc    Update header details (everything except bill_prefix)
+// @route   PATCH /api/masters/headers/:id/details
 // @access  Private
-exports.updateHeader = async (req, res) => {
+exports.updateHeaderDetails = async (req, res) => {
   const client = await require('../config/database').pool.connect();
   try {
-        // Check bill_prefix uniqueness if being updated
-    if (updates.bill_prefix) {
-      const prefixCheck = await query(
-        'SELECT id FROM header_master WHERE UPPER(bill_prefix) = UPPER($1) AND id != $2',
-        [updates.bill_prefix, id]
-      );
-      if (prefixCheck.rows.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: `Bill prefix "${updates.bill_prefix}" is already used by another company. Please choose a unique prefix.`
-        });
-      }
-    }
-
-    await client.query('BEGIN');
-
     const { id } = req.params;
     const updates = req.body;
 
     // Normalise optional fields — treat empty string as null so they clear cleanly
-    if (updates.gstin !== undefined) {
-      updates.gstin = updates.gstin && updates.gstin.trim() !== '' ? updates.gstin.trim() : null;
-    }
-    if (updates.pan !== undefined) {
-      updates.pan = updates.pan && updates.pan.trim() !== '' ? updates.pan.trim() : null;
-    }
+    const gstin = updates.gstin !== undefined
+      ? (updates.gstin && updates.gstin.trim() !== '' ? updates.gstin.trim() : null)
+      : undefined;
+    const pan = updates.pan !== undefined
+      ? (updates.pan && updates.pan.trim() !== '' ? updates.pan.trim() : null)
+      : undefined;
+
+    await client.query('BEGIN');
 
     const result = await client.query(
       `UPDATE header_master
-       SET company_name = COALESCE($1, company_name),
-           proprietor_name = COALESCE($2, proprietor_name),
-           address_line1 = COALESCE($3, address_line1),
-           address_line2 = COALESCE($4, address_line2),
-           city = COALESCE($5, city),
-           state = COALESCE($6, state),
-           pincode = COALESCE($7, pincode),
-           phone = COALESCE($8, phone),
-           email = COALESCE($9, email),
-           gstin = $10,
-           pan = $11,
-           bill_prefix = COALESCE($12, bill_prefix),
-           upi_id = COALESCE($13, upi_id),
-           updated_at = CURRENT_TIMESTAMP
+       SET company_name     = COALESCE($1,  company_name),
+           proprietor_name  = COALESCE($2,  proprietor_name),
+           address_line1    = COALESCE($3,  address_line1),
+           address_line2    = COALESCE($4,  address_line2),
+           city             = COALESCE($5,  city),
+           state            = COALESCE($6,  state),
+           pincode          = COALESCE($7,  pincode),
+           phone            = COALESCE($8,  phone),
+           email            = COALESCE($9,  email),
+           gstin            = COALESCE($10, gstin),
+           pan              = COALESCE($11, pan),
+           upi_id           = COALESCE($12, upi_id),
+           updated_at       = CURRENT_TIMESTAMP
        WHERE id = $13
        RETURNING *`,
       [updates.company_name, updates.proprietor_name, updates.address_line1,
-       updates.address_line2, updates.city, updates.state, updates.pincode, updates.phone,
-       updates.email, updates.gstin, updates.pan, updates.bill_prefix, updates.upi_id, id]
+       updates.address_line2, updates.city, updates.state, updates.pincode,
+       updates.phone, updates.email, gstin, pan, updates.upi_id, id]
     );
 
     if (result.rows.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(404).json({
-        success: false,
-        message: 'Company not found'
-      });
+      return res.status(404).json({ success: false, message: 'Company not found' });
     }
 
-    // Upsert bank details — INSERT if no row exists yet, UPDATE if it does
+    // Upsert bank details if any bank field was provided
     if (updates.bank_name !== undefined || updates.account_number !== undefined ||
         updates.ifsc_code !== undefined || updates.branch_name !== undefined ||
         updates.account_holder_name !== undefined) {
@@ -278,20 +260,71 @@ exports.updateHeader = async (req, res) => {
     }
 
     await client.query('COMMIT');
-
-    res.json({
-      success: true,
-      message: 'Company updated successfully',
-      data: result.rows[0]
-    });
+    res.json({ success: true, message: 'Company updated successfully', data: result.rows[0] });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Update header error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update company',
-      error: error.message
-    });
+    console.error('Update header details error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update company', error: error.message });
+  } finally {
+    client.release();
+  }
+};
+
+// @desc    Update bill prefix only — blocked once any finalized bill exists
+// @route   PATCH /api/masters/headers/:id/prefix
+// @access  Private
+exports.updateHeaderPrefix = async (req, res) => {
+  const client = await require('../config/database').pool.connect();
+  try {
+    const { id } = req.params;
+    const { bill_prefix } = req.body;
+
+    if (!bill_prefix || bill_prefix.trim() === '') {
+      return res.status(400).json({ success: false, message: 'bill_prefix is required' });
+    }
+
+    const prefix = bill_prefix.trim().toUpperCase();
+
+    // Block if any finalized bill already uses this header's current prefix
+    const finalizedCheck = await client.query(
+      `SELECT COUNT(*) AS cnt FROM bills WHERE header_id = $1 AND status = 'FINALIZED'`,
+      [id]
+    );
+    if (parseInt(finalizedCheck.rows[0].cnt) > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Prefix cannot be changed — this company already has ${finalizedCheck.rows[0].cnt} finalized bill(s). ` +
+                 `Changing the prefix now would create collisions with existing bill numbers. ` +
+                 `If you need a different prefix, create a new company.`
+      });
+    }
+
+    // Check uniqueness across all other companies (case-insensitive)
+    const prefixCheck = await client.query(
+      'SELECT id FROM header_master WHERE UPPER(bill_prefix) = $1 AND id != $2',
+      [prefix, id]
+    );
+    if (prefixCheck.rows.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Bill prefix "${prefix}" is already used by another company. Please choose a unique prefix.`
+      });
+    }
+
+    const result = await client.query(
+      `UPDATE header_master SET bill_prefix = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 RETURNING *`,
+      [prefix, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Company not found' });
+    }
+
+    res.json({ success: true, message: 'Bill prefix updated successfully', data: result.rows[0] });
+  } catch (error) {
+    console.error('Update header prefix error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update prefix', error: error.message });
   } finally {
     client.release();
   }
@@ -520,13 +553,17 @@ exports.getAllGSTRates = async (req, res) => {
 // @access  Private
 exports.createGSTRate = async (req, res) => {
   try {
+    // rate_name does not exist in gst_rates_master schema.
+    // The frontend sends either 'description' or 'rate_name' — both mean the same label.
+    // We normalise to 'description' which is the actual column.
     const { description, rate_name, rate_percentage } = req.body;
+    const label = description || rate_name;
 
     const result = await query(
-      `INSERT INTO gst_rates_master (description, rate_name, rate_percentage)
-       VALUES ($1, $2, $3)
+      `INSERT INTO gst_rates_master (description, rate_percentage)
+       VALUES ($1, $2)
        RETURNING *`,
-      [description || rate_name, description || rate_name, rate_percentage]
+      [label, rate_percentage]
     );
 
     res.status(201).json({
@@ -551,16 +588,16 @@ exports.updateGSTRate = async (req, res) => {
   try {
     const { id } = req.params;
     const { description, rate_name, rate_percentage } = req.body;
-    const nameValue = description || rate_name || null;
+    // Normalise: accept either field name from frontend, map to the 'description' column.
+    const label = description || rate_name || null;
 
     const result = await query(
       `UPDATE gst_rates_master
        SET rate_percentage = COALESCE($1, rate_percentage),
-           description     = COALESCE($2, description),
-           rate_name       = COALESCE($2, rate_name)
+           description     = COALESCE($2, description)
        WHERE id = $3
        RETURNING *`,
-      [rate_percentage, nameValue, id]
+      [rate_percentage, label, id]
     );
 
     if (result.rows.length === 0) {

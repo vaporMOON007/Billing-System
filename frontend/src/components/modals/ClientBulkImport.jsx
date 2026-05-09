@@ -84,12 +84,7 @@ const ClientBulkImport = ({ isOpen, onClose, onImportComplete }) => {
     if (!row['Client Name'] || row['Client Name'].toString().trim() === '') {
       errors.push(`Row ${index}: Client Name is required`);
     }
-    if (!row['Contact Person'] || row['Contact Person'].toString().trim() === '') {
-      errors.push(`Row ${index}: Contact Person is required`);
-    }
-    if (!row['Phone'] || row['Phone'].toString().trim() === '') {
-      errors.push(`Row ${index}: Phone is required`);
-    } else {
+    if (row['Phone'] && row['Phone'].toString().trim() !== '') {
       const phone = row['Phone'].toString().replace(/[^0-9]/g, '');
       if (phone.length !== 10) {
         errors.push(`Row ${index}: Phone must be exactly 10 digits`);
@@ -212,8 +207,8 @@ const ClientBulkImport = ({ isOpen, onClose, onImportComplete }) => {
           <h4 className="text-sm font-semibold text-blue-900 mb-2">Import Instructions</h4>
           <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
             <li>Download the Excel template below</li>
-            <li><strong>Required fields:</strong> Client Name, Contact Person, Phone</li>
-            <li><strong>Optional fields:</strong> GSTIN, PAN, Email, Address, City, State, Pincode</li>
+            <li><strong>Required fields:</strong> Client Name only</li>
+            <li><strong>Optional fields:</strong> Contact Person, Phone, GSTIN, PAN, Email, Address, City, State, Pincode</li>
             <li><strong>ID column:</strong> Leave blank for new clients. Fill with existing ID to update that client. If an ID is provided but not found, that row will error.</li>
             <li>Upload the completed file and click Import</li>
           </ol>

@@ -28,6 +28,8 @@ const MastersPage = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [itemToDelete, setItemToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [showCompanyDeleteConfirm, setShowCompanyDeleteConfirm] = useState(false);
+  const [companyToDelete, setCompanyToDelete] = useState(null);
 
   // Bulk delete and export states
   const [clientSearch, setClientSearch] = useState('');
@@ -86,8 +88,15 @@ const MastersPage = () => {
         const full = res.data.data;
         // Flatten bank_details into the top level so form fields like
         // editingItem?.bank_name / account_number etc. work directly
-        const { upi_id: _ignored, ...bankDetailsWithoutUpiId } = full.bank_details || {};
-        setEditingItem({ ...full, ...bankDetailsWithoutUpiId });
+        const bank = full.bank_details || {};
+        const bankFields = {
+          bank_name:           bank.bank_name           || '',
+          account_holder_name: bank.account_holder_name || '',
+          account_number:      bank.account_number      || '',
+          ifsc_code:           bank.ifsc_code           || '',
+          branch_name:         bank.branch_name         || '',
+        };
+        setEditingItem({ ...full, ...bankFields });
       } catch (err) {
         console.error('Failed to load company details:', err);
         toast.error('Failed to load company details');
@@ -100,8 +109,13 @@ const MastersPage = () => {
   };
 
   const handleDelete = (item) => {
-    setItemToDelete(item);
-    setShowDeleteModal(true);
+    if (activeTab === 'company') {
+      setCompanyToDelete(item);
+      setShowCompanyDeleteConfirm(true);
+    } else {
+      setItemToDelete(item);
+      setShowDeleteModal(true);
+    }
   };
 
   const confirmDelete = async () => {
@@ -135,6 +149,25 @@ const MastersPage = () => {
       // Show the actual reason from the backend (e.g. "in use in X bills")
       const msg = error.response?.data?.message || 'Failed to delete item';
       toast.error(msg);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const confirmCompanyDelete = async () => {
+    if (!companyToDelete) return;
+    setDeleting(true);
+    try {
+      await masterAPI.deleteHeader(companyToDelete.id);
+      toast.success('Company deleted successfully');
+      setShowCompanyDeleteConfirm(false);
+      setCompanyToDelete(null);
+      loadData();
+    } catch (error) {
+      const msg = error.response?.data?.message || 'Failed to delete company';
+      toast.error(msg);
+      setShowCompanyDeleteConfirm(false);
+      setCompanyToDelete(null);
     } finally {
       setDeleting(false);
     }
@@ -668,7 +701,7 @@ const MastersPage = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">UPI ID</label>
-                  <input type="text" name="upi_id" defaultValue={editingItem?.upi_id}
+                  <input type="text" name="upi_id" value={editingItem?.upi_id}
                     onChange={(e) => setEditingItem({ ...editingItem, upi_id: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
                 </div>
@@ -1026,6 +1059,36 @@ const MastersPage = () => {
             )}
             <div className="flex justify-end mt-4">
               <button onClick={() => setBulkDeleteLog(null)} className="px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+            {/* Company Delete Confirmation Modal */}
+      {showCompanyDeleteConfirm && companyToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Company</h3>
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+              <p className="text-sm text-red-800">
+                Are you sure you want to permanently delete <strong>{companyToDelete.company_name}</strong>? This cannot be undone.
+              </p>
+            </div>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => { setShowCompanyDeleteConfirm(false); setCompanyToDelete(null); }}
+                disabled={deleting}
+                className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmCompanyDelete}
+                disabled={deleting}
+                className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center space-x-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{deleting ? 'Deleting...' : 'Delete Permanently'}</span>
+              </button>
             </div>
           </div>
         </div>

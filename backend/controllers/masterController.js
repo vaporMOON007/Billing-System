@@ -240,24 +240,10 @@ exports.updateHeaderDetails = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Company not found' });
     }
 
-    // Upsert bank details if any bank field was provided
-    if (updates.bank_name !== undefined || updates.account_number !== undefined ||
-        updates.ifsc_code !== undefined || updates.branch_name !== undefined ||
-        updates.account_holder_name !== undefined) {
-      await client.query(
-        `INSERT INTO header_bank_details
-           (header_id, bank_name, account_holder_name, account_number, ifsc_code, branch_name)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (header_id) DO UPDATE SET
-           bank_name           = COALESCE(EXCLUDED.bank_name,           header_bank_details.bank_name),
-           account_holder_name = COALESCE(EXCLUDED.account_holder_name, header_bank_details.account_holder_name),
-           account_number      = COALESCE(EXCLUDED.account_number,      header_bank_details.account_number),
-           ifsc_code           = COALESCE(EXCLUDED.ifsc_code,           header_bank_details.ifsc_code),
-           branch_name         = COALESCE(EXCLUDED.branch_name,         header_bank_details.branch_name)`,
-        [id, updates.bank_name, updates.account_holder_name, updates.account_number,
-         updates.ifsc_code, updates.branch_name]
-      );
-    }
+    // NOTE: Bank details are no longer upserted here — they are managed
+    // individually via the dedicated bank account endpoints (add/edit/delete).
+    // The old ON CONFLICT (header_id) DO UPDATE pattern broke when the UNIQUE
+    // constraint on header_id was dropped for multi-bank support (migration 006).
 
     await client.query('COMMIT');
     res.json({ success: true, message: 'Company updated successfully', data: result.rows[0] });
@@ -265,6 +251,211 @@ exports.updateHeaderDetails = async (req, res) => {
     await client.query('ROLLBACK');
     console.error('Update header details error:', error);
     res.status(500).json({ success: false, message: 'Failed to update company', error: error.message });
+  } finally {
+    client.release();
+  }
+};
+
+// ============================================================================
+// BANK ACCOUNTS (per company)
+// ============================================================================
+
+// @desc    Get all bank accounts for a company
+// @route   GET /api/masters/headers/:id/bank-accounts
+// @access  Private
+exports.getBankAccountsByHeader = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await query(
+      `SELECT * FROM header_bank_details WHERE header_id = $1 ORDER BY is_primary DESC, id ASC`,
+      [id]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Get bank accounts error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch bank accounts', error: error.message });
+  }
+};
+
+// @desc    Add a bank account to a company
+// @route   POST /api/masters/headers/:id/bank-accounts
+// @access  Private (CA / SUPERADMIN)
+exports.addBankAccount = async (req, res) => {
+  const client = await require('../config/database').pool.connect();
+  try {
+    const { id } = req.params;
+    const { bank_name, account_holder_name, account_number, ifsc_code, branch_name, nick_name, is_primary } = req.body;
+
+    // Verify company exists
+    const companyCheck = await client.query('SELECT id FROM header_master WHERE id = $1', [id]);
+    if (companyCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Company not found' });
+    }
+
+    await client.query('BEGIN');
+
+    // If this account is being set as primary, demote all others for this company first
+    if (is_primary) {
+      await client.query(
+        `UPDATE header_bank_details SET is_primary = false WHERE header_id = $1`,
+        [id]
+      );
+    }
+
+    // If this is the first account for the company, force it to be primary regardless
+    const existingCount = await client.query(
+      `SELECT COUNT(*) AS cnt FROM header_bank_details WHERE header_id = $1`,
+      [id]
+    );
+    const forcesPrimary = parseInt(existingCount.rows[0].cnt) === 0 ? true : (is_primary || false);
+
+    const result = await client.query(
+      `INSERT INTO header_bank_details
+         (header_id, bank_name, account_holder_name, account_number, ifsc_code, branch_name, nick_name, is_primary)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [id, bank_name || null, account_holder_name || null, account_number || null,
+       ifsc_code || null, branch_name || null, nick_name || null, forcesPrimary]
+    );
+
+    await client.query('COMMIT');
+
+    res.status(201).json({
+      success: true,
+      message: 'Bank account added successfully',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Add bank account error:', error);
+    res.status(500).json({ success: false, message: 'Failed to add bank account', error: error.message });
+  } finally {
+    client.release();
+  }
+};
+
+// @desc    Update a bank account
+// @route   PUT /api/masters/headers/:id/bank-accounts/:bankId
+// @access  Private (CA / SUPERADMIN)
+exports.updateBankAccount = async (req, res) => {
+  const client = await require('../config/database').pool.connect();
+  try {
+    const { id, bankId } = req.params;
+    const { bank_name, account_holder_name, account_number, ifsc_code, branch_name, nick_name, is_primary } = req.body;
+
+    // Verify this bank account belongs to this company
+    const ownerCheck = await client.query(
+      `SELECT id FROM header_bank_details WHERE id = $1 AND header_id = $2`,
+      [bankId, id]
+    );
+    if (ownerCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Bank account not found for this company' });
+    }
+
+    await client.query('BEGIN');
+
+    // If setting this account as primary, demote all others for this company
+    if (is_primary) {
+      await client.query(
+        `UPDATE header_bank_details SET is_primary = false WHERE header_id = $1`,
+        [id]
+      );
+    }
+
+    const result = await client.query(
+      `UPDATE header_bank_details
+       SET bank_name           = COALESCE($1, bank_name),
+           account_holder_name = COALESCE($2, account_holder_name),
+           account_number      = COALESCE($3, account_number),
+           ifsc_code           = COALESCE($4, ifsc_code),
+           branch_name         = COALESCE($5, branch_name),
+           nick_name           = COALESCE($6, nick_name),
+           is_primary          = COALESCE($7, is_primary)
+       WHERE id = $8 AND header_id = $9
+       RETURNING *`,
+      [bank_name, account_holder_name, account_number, ifsc_code, branch_name, nick_name, is_primary, bankId, id]
+    );
+
+    await client.query('COMMIT');
+
+    res.json({ success: true, message: 'Bank account updated successfully', data: result.rows[0] });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Update bank account error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update bank account', error: error.message });
+  } finally {
+    client.release();
+  }
+};
+
+// @desc    Delete a bank account
+// @route   DELETE /api/masters/headers/:id/bank-accounts/:bankId
+// @access  Private (CA / SUPERADMIN)
+exports.deleteBankAccount = async (req, res) => {
+  const client = await require('../config/database').pool.connect();
+  try {
+    const { id, bankId } = req.params;
+
+    // Verify this bank account belongs to this company
+    const ownerCheck = await client.query(
+      `SELECT id, is_primary FROM header_bank_details WHERE id = $1 AND header_id = $2`,
+      [bankId, id]
+    );
+    if (ownerCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Bank account not found for this company' });
+    }
+
+    // Block deletion if any bill (DRAFT or FINALIZED) references this bank account
+    const billCheck = await client.query(
+      `SELECT COUNT(*) AS cnt FROM bills WHERE bank_account_id = $1`,
+      [bankId]
+    );
+    if (parseInt(billCheck.rows[0].cnt) > 0) {
+      return res.status(409).json({
+        success: false,
+        message: `Cannot delete — ${billCheck.rows[0].cnt} bill(s) are using this bank account. Please reassign those bills to a different account first.`
+      });
+    }
+
+    // Block deletion if this is the only account for the company
+    const countCheck = await client.query(
+      `SELECT COUNT(*) AS cnt FROM header_bank_details WHERE header_id = $1`,
+      [id]
+    );
+    if (parseInt(countCheck.rows[0].cnt) <= 1) {
+      return res.status(409).json({
+        success: false,
+        message: 'Cannot delete the only bank account for a company. Add another account first, then delete this one.'
+      });
+    }
+
+    await client.query('BEGIN');
+
+    await client.query(`DELETE FROM header_bank_details WHERE id = $1`, [bankId]);
+
+    // If the deleted account was primary, promote the oldest remaining account
+    if (ownerCheck.rows[0].is_primary) {
+      await client.query(
+        `UPDATE header_bank_details SET is_primary = true
+         WHERE id = (SELECT id FROM header_bank_details WHERE header_id = $1 ORDER BY id ASC LIMIT 1)`,
+        [id]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    res.json({ success: true, message: 'Bank account deleted successfully' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Delete bank account error:', error);
+    // ON DELETE RESTRICT FK violation from bills.bank_account_id
+    if (error.code === '23503') {
+      return res.status(409).json({
+        success: false,
+        message: 'Cannot delete — bills are referencing this bank account. Please reassign them first.'
+      });
+    }
+    res.status(500).json({ success: false, message: 'Failed to delete bank account', error: error.message });
   } finally {
     client.release();
   }
@@ -337,7 +528,7 @@ exports.deleteHeader = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Check if any bills exist for this company
+    // Check bills.header_id (standard FK — bills created under this company)
     const billCheck = await query(
       'SELECT COUNT(*) AS cnt FROM bills WHERE header_id = $1',
       [id]
@@ -346,6 +537,37 @@ exports.deleteHeader = async (req, res) => {
       return res.status(409).json({
         success: false,
         message: `Cannot delete — this company has ${billCheck.rows[0].cnt} bill(s) associated with it. Please reassign or delete those bills first.`
+      });
+    }
+
+    // Check bills.override_header_id (SUPERADMIN can reassign a bill's company header)
+    // This FK was previously missed, causing a cryptic DB-level FK violation error.
+    const overrideCheck = await query(
+      'SELECT COUNT(*) AS cnt FROM bills WHERE override_header_id = $1',
+      [id]
+    );
+    if (parseInt(overrideCheck.rows[0].cnt) > 0) {
+      return res.status(409).json({
+        success: false,
+        message: `Cannot delete — ${overrideCheck.rows[0].cnt} bill(s) reference this company as their override header. Please update those bills first.`
+      });
+    }
+
+    // Check bills.bank_account_id — bills reference a specific bank account, which
+    // belongs to this company via header_bank_details. If any bank account of this
+    // company is referenced by a bill, the cascade through header_bank_details
+    // (ON DELETE CASCADE from header_master) would be blocked by the RESTRICT FK on bills.
+    const bankBillCheck = await query(
+      `SELECT COUNT(*) AS cnt
+       FROM bills b
+       JOIN header_bank_details hbd ON hbd.id = b.bank_account_id
+       WHERE hbd.header_id = $1`,
+      [id]
+    );
+    if (parseInt(bankBillCheck.rows[0].cnt) > 0) {
+      return res.status(409).json({
+        success: false,
+        message: `Cannot delete — ${bankBillCheck.rows[0].cnt} bill(s) are linked to a bank account of this company. Please reassign those bills to a different company/account first.`
       });
     }
 

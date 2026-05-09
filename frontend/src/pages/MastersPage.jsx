@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Upload, Download, FileText, Search } from 'lucide-react';
+import { Plus, Edit2, Trash2, Upload, Download, FileText, Search, ChevronDown, ChevronRight, Star, CreditCard } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import { masterAPI, clientAPI } from '../services/api';
@@ -30,6 +30,18 @@ const MastersPage = () => {
   const [deleting, setDeleting] = useState(false);
   const [showCompanyDeleteConfirm, setShowCompanyDeleteConfirm] = useState(false);
   const [companyToDelete, setCompanyToDelete] = useState(null);
+
+  // Bank account expandable row states
+  const [expandedCompanyId, setExpandedCompanyId] = useState(null);
+  const [bankAccounts, setBankAccounts] = useState({}); // { [companyId]: [...accounts] }
+  const [bankAccountsLoading, setBankAccountsLoading] = useState(false);
+  const [showBankModal, setShowBankModal] = useState(false);
+  const [editingBankAccount, setEditingBankAccount] = useState(null); // null = add new
+  const [bankModalCompanyId, setBankModalCompanyId] = useState(null);
+  const [bankSaving, setBankSaving] = useState(false);
+  const [showBankDeleteConfirm, setShowBankDeleteConfirm] = useState(false);
+  const [bankAccountToDelete, setBankAccountToDelete] = useState(null);
+  const [bankDeleting, setBankDeleting] = useState(false);
 
   // Bulk delete and export states
   const [clientSearch, setClientSearch] = useState('');
@@ -227,6 +239,105 @@ const MastersPage = () => {
     }
   };
 
+  // ── Bank account handlers ─────────────────────────────────────────────────
+
+  const toggleCompanyExpand = async (companyId) => {
+    if (expandedCompanyId === companyId) {
+      setExpandedCompanyId(null);
+      return;
+    }
+    setExpandedCompanyId(companyId);
+    // Load bank accounts if not already cached
+    if (!bankAccounts[companyId]) {
+      setBankAccountsLoading(true);
+      try {
+        const res = await masterAPI.getBankAccountsByHeader(companyId);
+        setBankAccounts(prev => ({ ...prev, [companyId]: res.data.data }));
+      } catch {
+        toast.error('Failed to load bank accounts');
+      } finally {
+        setBankAccountsLoading(false);
+      }
+    }
+  };
+
+  const handleAddBankAccount = (companyId) => {
+    setEditingBankAccount(null);
+    setBankModalCompanyId(companyId);
+    setShowBankModal(true);
+  };
+
+  const handleEditBankAccount = (companyId, account) => {
+    setEditingBankAccount(account);
+    setBankModalCompanyId(companyId);
+    setShowBankModal(true);
+  };
+
+  const handleDeleteBankAccount = (companyId, account) => {
+    setBankAccountToDelete({ companyId, account });
+    setShowBankDeleteConfirm(true);
+  };
+
+  const confirmDeleteBankAccount = async () => {
+    if (!bankAccountToDelete) return;
+    setBankDeleting(true);
+    const { companyId, account } = bankAccountToDelete;
+    try {
+      await masterAPI.deleteBankAccount(companyId, account.id);
+      toast.success('Bank account deleted');
+      // Invalidate cache so it reloads
+      setBankAccounts(prev => {
+        const updated = { ...prev };
+        delete updated[companyId];
+        return updated;
+      });
+      // Re-fetch
+      const res = await masterAPI.getBankAccountsByHeader(companyId);
+      setBankAccounts(prev => ({ ...prev, [companyId]: res.data.data }));
+      setShowBankDeleteConfirm(false);
+      setBankAccountToDelete(null);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to delete bank account');
+    } finally {
+      setBankDeleting(false);
+    }
+  };
+
+  const handleSaveBankAccount = async (e) => {
+    e.preventDefault();
+    setBankSaving(true);
+    const formData = new FormData(e.target);
+    const data = {
+      bank_name: formData.get('bank_name') || null,
+      account_holder_name: formData.get('account_holder_name') || null,
+      account_number: formData.get('account_number') || null,
+      ifsc_code: formData.get('ifsc_code') || null,
+      branch_name: formData.get('branch_name') || null,
+      nick_name: formData.get('nick_name') || null,
+      is_primary: formData.get('is_primary') === 'true',
+    };
+    try {
+      if (editingBankAccount) {
+        await masterAPI.updateBankAccount(bankModalCompanyId, editingBankAccount.id, data);
+        toast.success('Bank account updated');
+      } else {
+        await masterAPI.addBankAccount(bankModalCompanyId, data);
+        toast.success('Bank account added');
+      }
+      setShowBankModal(false);
+      setEditingBankAccount(null);
+      // Refresh bank accounts for this company
+      const res = await masterAPI.getBankAccountsByHeader(bankModalCompanyId);
+      setBankAccounts(prev => ({ ...prev, [bankModalCompanyId]: res.data.data }));
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to save bank account');
+    } finally {
+      setBankSaving(false);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
@@ -412,8 +523,10 @@ const MastersPage = () => {
                 <table className="w-full">
                   <thead className="bg-gray-50">
                     <tr>
+                      <th className="px-4 py-3 w-8"></th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Company Name</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Prefix</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Proprietor</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">GSTIN</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Phone</th>
@@ -422,21 +535,111 @@ const MastersPage = () => {
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {companies.map((item) => (
-                      <tr key={item.id}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.id}</td>
-                        <td className="px-6 py-4 text-sm font-medium text-gray-900">{item.company_name}</td>
-                        <td className="px-6 py-4 text-sm text-gray-900">{item.proprietor_name}</td>
-                        <td className="px-6 py-4 text-sm text-gray-900">{item.gstin}</td>
-                        <td className="px-6 py-4 text-sm text-gray-900">{item.phone}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-                          <button onClick={() => handleEdit(item)} className="text-primary-600 hover:text-primary-900 mr-4">
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => handleDelete(item)} className="text-red-600 hover:text-red-900">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
+                      <>
+                        {/* Company row */}
+                        <tr key={item.id} className={expandedCompanyId === item.id ? 'bg-primary-50' : 'hover:bg-gray-50'}>
+                          <td className="px-4 py-4">
+                            <button
+                              onClick={() => toggleCompanyExpand(item.id)}
+                              className="text-gray-400 hover:text-primary-600 transition-colors"
+                              title="Show bank accounts"
+                            >
+                              {expandedCompanyId === item.id
+                                ? <ChevronDown className="w-4 h-4" />
+                                : <ChevronRight className="w-4 h-4" />
+                              }
+                            </button>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.id}</td>
+                          <td className="px-6 py-4 text-sm font-medium text-gray-900">{item.company_name}</td>
+                          <td className="px-6 py-4 text-sm text-gray-500 font-mono">{item.bill_prefix}</td>
+                          <td className="px-6 py-4 text-sm text-gray-900">{item.proprietor_name}</td>
+                          <td className="px-6 py-4 text-sm text-gray-900">{item.gstin || '—'}</td>
+                          <td className="px-6 py-4 text-sm text-gray-900">{item.phone}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                            <button onClick={() => handleEdit(item)} className="text-primary-600 hover:text-primary-900 mr-4">
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => handleDelete(item)} className="text-red-600 hover:text-red-900">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+
+                        {/* Expandable bank accounts section */}
+                        {expandedCompanyId === item.id && (
+                          <tr key={`bank-${item.id}`}>
+                            <td colSpan={8} className="bg-gray-50 px-6 py-4 border-t border-primary-100">
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center space-x-2">
+                                  <CreditCard className="w-4 h-4 text-primary-500" />
+                                  <span className="text-sm font-semibold text-gray-700">Bank Accounts — {item.company_name}</span>
+                                </div>
+                                <button
+                                  onClick={() => handleAddBankAccount(item.id)}
+                                  className="flex items-center space-x-1 px-3 py-1.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-xs transition-colors"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  <span>Add Account</span>
+                                </button>
+                              </div>
+
+                              {bankAccountsLoading && !bankAccounts[item.id] ? (
+                                <div className="text-sm text-gray-400 py-2">Loading...</div>
+                              ) : (bankAccounts[item.id] || []).length === 0 ? (
+                                <div className="text-sm text-gray-400 py-2 italic">No bank accounts added yet.</div>
+                              ) : (
+                                <table className="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
+                                  <thead className="bg-white">
+                                    <tr>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Nick Name</th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Bank</th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Account Holder</th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Account No.</th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">IFSC</th>
+                                      <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Primary</th>
+                                      <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-gray-100">
+                                    {(bankAccounts[item.id] || []).map(account => (
+                                      <tr key={account.id} className="bg-white hover:bg-gray-50">
+                                        <td className="px-4 py-2 text-gray-700 font-medium">
+                                          {account.nick_name || <span className="text-gray-400 italic">—</span>}
+                                        </td>
+                                        <td className="px-4 py-2 text-gray-700">{account.bank_name || '—'}</td>
+                                        <td className="px-4 py-2 text-gray-700">{account.account_holder_name || '—'}</td>
+                                        <td className="px-4 py-2 font-mono text-gray-700">{account.account_number || '—'}</td>
+                                        <td className="px-4 py-2 font-mono text-gray-600 text-xs">{account.ifsc_code || '—'}</td>
+                                        <td className="px-4 py-2 text-center">
+                                          {account.is_primary
+                                            ? <Star className="w-4 h-4 text-amber-500 fill-amber-400 inline" title="Primary account" />
+                                            : <span className="text-gray-300">—</span>
+                                          }
+                                        </td>
+                                        <td className="px-4 py-2 text-right whitespace-nowrap">
+                                          <button
+                                            onClick={() => handleEditBankAccount(item.id, account)}
+                                            className="text-primary-600 hover:text-primary-900 mr-3"
+                                          >
+                                            <Edit2 className="w-3.5 h-3.5" />
+                                          </button>
+                                          <button
+                                            onClick={() => handleDeleteBankAccount(item.id, account)}
+                                            className="text-red-500 hover:text-red-700"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </>
                     ))}
                   </tbody>
                 </table>
@@ -1093,6 +1296,151 @@ const MastersPage = () => {
           </div>
         </div>
       )}
+      {/* Bank Account Add/Edit Modal */}
+      <Modal
+        isOpen={showBankModal}
+        onClose={() => { setShowBankModal(false); setEditingBankAccount(null); }}
+        title={editingBankAccount ? 'Edit Bank Account' : 'Add Bank Account'}
+        size="md"
+      >
+        <form onSubmit={handleSaveBankAccount} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Nick Name <span className="text-gray-400 text-xs font-normal">(optional, e.g. "HDFC Current")</span>
+              </label>
+              <input
+                type="text"
+                name="nick_name"
+                defaultValue={editingBankAccount?.nick_name || ''}
+                placeholder="e.g. HDFC Current Account"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Bank Name</label>
+              <input
+                type="text"
+                name="bank_name"
+                defaultValue={editingBankAccount?.bank_name || ''}
+                placeholder="e.g. HDFC Bank"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Account Holder Name</label>
+              <input
+                type="text"
+                name="account_holder_name"
+                defaultValue={editingBankAccount?.account_holder_name || ''}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Account Number</label>
+              <input
+                type="text"
+                name="account_number"
+                defaultValue={editingBankAccount?.account_number || ''}
+                pattern="[0-9]{9,18}"
+                maxLength={18}
+                title="Account number must be 9–18 digits"
+                placeholder="Digits only, 9–18 characters"
+                onInput={(e) => { e.target.value = e.target.value.replace(/[^0-9]/g, ''); }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">IFSC Code</label>
+              <input
+                type="text"
+                name="ifsc_code"
+                defaultValue={editingBankAccount?.ifsc_code || ''}
+                maxLength={11}
+                pattern="[A-Z]{4}0[A-Z0-9]{6}"
+                title="IFSC: 4 letters + 0 + 6 alphanumeric (e.g. HDFC0001234)"
+                placeholder="HDFC0001234"
+                onInput={(e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Branch Name</label>
+              <input
+                type="text"
+                name="branch_name"
+                defaultValue={editingBankAccount?.branch_name || ''}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="flex items-center space-x-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="is_primary"
+                  value="true"
+                  defaultChecked={editingBankAccount?.is_primary || false}
+                  onChange={(e) => {
+                    // Ensure the hidden field reflects the checkbox state
+                    e.target.value = e.target.checked ? 'true' : 'false';
+                  }}
+                  className="w-4 h-4 text-primary-600 rounded"
+                />
+                <span className="text-sm font-medium text-gray-700">
+                  Set as primary account <span className="text-gray-400 text-xs">(shown on bills by default)</span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <button
+              type="button"
+              onClick={() => { setShowBankModal(false); setEditingBankAccount(null); }}
+              className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={bankSaving}
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+            >
+              {bankSaving ? 'Saving...' : editingBankAccount ? 'Update Account' : 'Add Account'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Bank Account Delete Confirmation */}
+      {showBankDeleteConfirm && bankAccountToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Bank Account</h3>
+            <p className="text-sm text-gray-600 mb-1">
+              Are you sure you want to delete the bank account
+              <strong> {bankAccountToDelete.account.nick_name || bankAccountToDelete.account.bank_name || `#${bankAccountToDelete.account.id}`}</strong>?
+            </p>
+            <p className="text-xs text-amber-600 mb-4">This cannot be undone. Bills using this account will block deletion.</p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => { setShowBankDeleteConfirm(false); setBankAccountToDelete(null); }}
+                className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteBankAccount}
+                disabled={bankDeleting}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+              >
+                {bankDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

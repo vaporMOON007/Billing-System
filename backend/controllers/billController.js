@@ -16,7 +16,8 @@ exports.createBill = async (req, res) => {
       bill_date,
       payment_term_id,
       notes,
-      services
+      services,
+      bank_account_id
     } = req.body;
 
     const userId = req.user.id;
@@ -44,14 +45,54 @@ exports.createBill = async (req, res) => {
       }
     }
 
+    // Resolve bank_account_id:
+    // If provided, validate it belongs to the selected company.
+    // If not provided, auto-pick the primary account for the company.
+    let resolvedBankAccountId = bank_account_id ? parseInt(bank_account_id) : null;
+
+    if (resolvedBankAccountId) {
+      const bankCheck = await client.query(
+        `SELECT id FROM header_bank_details WHERE id = $1 AND header_id = $2`,
+        [resolvedBankAccountId, header_id]
+      );
+      if (bankCheck.rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'The selected bank account does not belong to the selected company.'
+        });
+      }
+    } else {
+      // Auto-pick primary account
+      const primaryBank = await client.query(
+        `SELECT id FROM header_bank_details WHERE header_id = $1 AND is_primary = true LIMIT 1`,
+        [header_id]
+      );
+      if (primaryBank.rows.length === 0) {
+        // Fallback: pick any account
+        const anyBank = await client.query(
+          `SELECT id FROM header_bank_details WHERE header_id = $1 ORDER BY id ASC LIMIT 1`,
+          [header_id]
+        );
+        if (anyBank.rows.length === 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'This company has no bank account set up. Please add a bank account to the company before creating a bill.'
+          });
+        }
+        resolvedBankAccountId = anyBank.rows[0].id;
+      } else {
+        resolvedBankAccountId = primaryBank.rows[0].id;
+      }
+    }
+
     // Create bill — bill_no is auto-assigned by DB trigger
     const billResult = await client.query(
       `INSERT INTO bills
-       (header_id, client_id, bill_date, due_date, financial_year, payment_term_id, notes, created_by, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'DRAFT')
+       (header_id, client_id, bill_date, due_date, financial_year, payment_term_id, notes, created_by, status, bank_account_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'DRAFT', $9)
        RETURNING *`,
       [header_id, client_id || null, bill_date, due_date, financial_year,
-       payment_term_id || null, notes || null, userId]
+       payment_term_id || null, notes || null, userId, resolvedBankAccountId]
     );
 
     const bill = billResult.rows[0];
@@ -472,8 +513,55 @@ exports.updateBill = async (req, res) => {
       bill_date,
       payment_term_id,
       notes,
-      services
+      services,
+      bank_account_id
     } = req.body;
+
+    const isSuperAdmin = req.user.role === 'SUPERADMIN';
+    const overrideEdit = req.body.override_edit === true && isSuperAdmin;
+
+    // Fetch the current bill to check status and get existing header_id
+    const currentBill = await client.query(
+      'SELECT id, status, header_id, bank_account_id FROM bills WHERE id = $1',
+      [id]
+    );
+    if (currentBill.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Bill not found' });
+    }
+    const bill = currentBill.rows[0];
+
+    // Permission check: regular users can only edit DRAFT bills
+    if (bill.status !== 'DRAFT' && !overrideEdit) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bill is not in DRAFT status. Only SUPERADMIN can edit finalized bills.'
+      });
+    }
+
+    // Bank account permission:
+    // Any user can change bank account on DRAFT. Only SUPERADMIN can change on FINALIZED.
+    let resolvedBankAccountId = undefined; // undefined = don't touch it
+    if (bank_account_id !== undefined) {
+      if (bill.status === 'FINALIZED' && !isSuperAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'Only SUPERADMIN can change the bank account on a finalized bill.'
+        });
+      }
+      // Validate the bank account belongs to the bill's company (header_id doesn't change on update)
+      const effectiveHeaderId = bill.header_id;
+      const bankCheck = await client.query(
+        `SELECT id FROM header_bank_details WHERE id = $1 AND header_id = $2`,
+        [bank_account_id, effectiveHeaderId]
+      );
+      if (bankCheck.rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'The selected bank account does not belong to this bill\'s company.'
+        });
+      }
+      resolvedBankAccountId = parseInt(bank_account_id);
+    }
 
     // Recalculate due_date if both payment_term_id and bill_date are provided
     let due_date = null;
@@ -494,30 +582,29 @@ exports.updateBill = async (req, res) => {
       }
     }
 
-    const isSuperAdmin = req.user.role === 'SUPERADMIN';
-    const overrideEdit = req.body.override_edit === true && isSuperAdmin;
-
     // SUPERADMIN can override-edit any bill regardless of status
-    // Regular users can only edit DRAFT bills
+    // Regular users can only edit DRAFT bills (enforced above, this WHERE clause is a safety net)
     const updateQuery = overrideEdit
       ? `UPDATE bills
-         SET header_id = COALESCE($1, header_id),
-             client_id = COALESCE($2, client_id),
-             bill_date = COALESCE($3, bill_date),
-             due_date = COALESCE($4, due_date),
+         SET header_id       = COALESCE($1, header_id),
+             client_id       = COALESCE($2, client_id),
+             bill_date       = COALESCE($3, bill_date),
+             due_date        = COALESCE($4, due_date),
              payment_term_id = COALESCE($5, payment_term_id),
-             notes = $6,
-             updated_at = CURRENT_TIMESTAMP
+             notes           = $6,
+             bank_account_id = COALESCE($8, bank_account_id),
+             updated_at      = CURRENT_TIMESTAMP
          WHERE id = $7
          RETURNING *`
       : `UPDATE bills
-         SET header_id = COALESCE($1, header_id),
-             client_id = COALESCE($2, client_id),
-             bill_date = COALESCE($3, bill_date),
-             due_date = COALESCE($4, due_date),
+         SET header_id       = COALESCE($1, header_id),
+             client_id       = COALESCE($2, client_id),
+             bill_date       = COALESCE($3, bill_date),
+             due_date        = COALESCE($4, due_date),
              payment_term_id = COALESCE($5, payment_term_id),
-             notes = $6,
-             updated_at = CURRENT_TIMESTAMP
+             notes           = $6,
+             bank_account_id = COALESCE($8, bank_account_id),
+             updated_at      = CURRENT_TIMESTAMP
          WHERE id = $7 AND status = 'DRAFT'
          RETURNING *`;
 
@@ -525,7 +612,8 @@ exports.updateBill = async (req, res) => {
     const billResult = await client.query(updateQuery,
       [header_id || null, client_id || null, bill_date || null,
        due_date || null, payment_term_id || null,
-       notes !== undefined ? notes : null, id]
+       notes !== undefined ? notes : null, id,
+       resolvedBankAccountId !== undefined ? resolvedBankAccountId : null]
     );
 
     if (billResult.rows.length === 0) {

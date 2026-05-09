@@ -46,7 +46,7 @@ coverage/
 # Database
 *.sqlite
 *.db
-!schema.sql
+schema.sql
 
 # OS Files
 Thumbs.db

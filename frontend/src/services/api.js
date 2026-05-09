@@ -136,7 +136,13 @@ export const masterAPI = {
   updatePaymentTerm: (id, data) => api.put(`/masters/payment-terms/${id}`, data),
   deletePaymentTerm: (id) => api.delete(`/masters/payment-terms/${id}`),
 
-  // Bank Accounts (for Mark Payment dropdown)
+  // Bank accounts per company (multi-bank — migration 006)
+  getBankAccountsByHeader: (headerId) => api.get(`/masters/headers/${headerId}/bank-accounts`),
+  addBankAccount: (headerId, data) => api.post(`/masters/headers/${headerId}/bank-accounts`, data),
+  updateBankAccount: (headerId, bankId, data) => api.put(`/masters/headers/${headerId}/bank-accounts/${bankId}`, data),
+  deleteBankAccount: (headerId, bankId) => api.delete(`/masters/headers/${headerId}/bank-accounts/${bankId}`),
+
+  // Bank Accounts (for Mark Payment dropdown — all companies)
   getBankAccounts: () => api.get('/masters/bank-accounts'),
 };
 

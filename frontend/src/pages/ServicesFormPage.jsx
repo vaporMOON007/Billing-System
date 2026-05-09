@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Plus, Save, Eye, AlertTriangle, Lock } from 'lucide-react';
+import { Plus, Save, Eye, AlertTriangle, Lock, CreditCard, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { FormSkeleton } from '../components/common/SkeletonLoader';
 import { SuccessCheckmark } from '../components/common/SuccessAnimation';
@@ -49,9 +49,17 @@ const ServicesFormPage = () => {
     header_id: '',
     bill_date: new Date(),
     payment_term_id: '',
-    client_id: '',  // ← ADD THIS LINE
+    client_id: '',
     notes: '',
+    bank_account_id: '',
   });
+
+  // Bank account state
+  const [companyBankAccounts, setCompanyBankAccounts] = useState([]); // accounts for selected company
+  const [selectedBankAccount, setSelectedBankAccount] = useState(null); // full account object
+  const [showBankPopup, setShowBankPopup] = useState(false); // radio selection popup
+  const [bankPopupSelection, setBankPopupSelection] = useState(''); // temp selection in popup
+  const [bankAccountsLoading, setBankAccountsLoading] = useState(false);
 
   const [serviceErrors, setServiceErrors] = useState([]);
   const [billNumberPreview, setBillNumberPreview] = useState('');
@@ -118,6 +126,78 @@ const ServicesFormPage = () => {
     } catch (error) {
       console.error('Failed to preview bill number:', error);
     }
+  };
+
+  // Fetch bank accounts for a given company, then auto-select or show popup
+  const loadBankAccountsForCompany = async (headerId, existingBankAccountId = null) => {
+    if (!headerId) {
+      setCompanyBankAccounts([]);
+      setSelectedBankAccount(null);
+      setFormData(prev => ({ ...prev, bank_account_id: '' }));
+      return;
+    }
+    setBankAccountsLoading(true);
+    try {
+      const res = await masterAPI.getBankAccountsByHeader(headerId);
+      const accounts = res.data.data;
+      setCompanyBankAccounts(accounts);
+
+      if (accounts.length === 0) {
+        setSelectedBankAccount(null);
+        setFormData(prev => ({ ...prev, bank_account_id: '' }));
+        return;
+      }
+
+      // Determine which account to select
+      let toSelect = null;
+      if (existingBankAccountId) {
+        // Edit mode: pre-select the bill's current account
+        toSelect = accounts.find(a => a.id === parseInt(existingBankAccountId)) || null;
+      }
+      if (!toSelect) {
+        // Default: primary account
+        toSelect = accounts.find(a => a.is_primary) || accounts[0];
+      }
+
+      if (accounts.length === 1) {
+        // Only one account — silently auto-select
+        setSelectedBankAccount(toSelect);
+        setFormData(prev => ({ ...prev, bank_account_id: toSelect.id.toString() }));
+      } else if (existingBankAccountId) {
+        // Edit mode with existing selection — pre-select without popup
+        setSelectedBankAccount(toSelect);
+        setFormData(prev => ({ ...prev, bank_account_id: toSelect.id.toString() }));
+      } else {
+        // Multiple accounts and no pre-existing choice — show popup
+        setBankPopupSelection(toSelect.id.toString());
+        setShowBankPopup(true);
+      }
+    } catch (error) {
+      console.error('Failed to load bank accounts:', error);
+      toast.error('Failed to load bank accounts for this company');
+    } finally {
+      setBankAccountsLoading(false);
+    }
+  };
+
+  // Handle company dropdown change — fetch bank accounts and trigger popup if needed
+  const handleCompanyChange = (headerId) => {
+    setFormData(prev => ({ ...prev, header_id: headerId, bank_account_id: '' }));
+    setSelectedBankAccount(null);
+    setCompanyBankAccounts([]);
+    if (headerId) {
+      loadBankAccountsForCompany(headerId);
+    }
+  };
+
+  // Confirm bank account selection from popup
+  const handleBankPopupConfirm = () => {
+    const account = companyBankAccounts.find(a => a.id.toString() === bankPopupSelection);
+    if (account) {
+      setSelectedBankAccount(account);
+      setFormData(prev => ({ ...prev, bank_account_id: account.id.toString() }));
+    }
+    setShowBankPopup(false);
   };
 
   const loadMasterData = async () => {
@@ -193,7 +273,13 @@ const ServicesFormPage = () => {
       payment_term_id: bill.payment_term_id?.toString() || '',
       client_id: bill.client_id?.toString() || '',
       notes: bill.notes || '',
+      bank_account_id: bill.bank_account_id?.toString() || '',
     });
+
+    // Load bank accounts for the company and pre-select the bill's account (no popup)
+    if (bill.header_id) {
+      loadBankAccountsForCompany(bill.header_id.toString(), bill.bank_account_id);
+    }
 
     if (bill.services && bill.services.length > 0) {
       setServices(bill.services.map(s => {
@@ -422,6 +508,7 @@ const ServicesFormPage = () => {
           payment_term_id: parseInt(formData.payment_term_id),
           client_id: formData.client_id ? parseInt(formData.client_id) : null,
           notes: formData.notes,
+          bank_account_id: formData.bank_account_id ? parseInt(formData.bank_account_id) : undefined,
           services: services.map((s) => ({
             particulars_id: parseInt(s.particulars_id),
             particulars_other: s.particulars_other || null,
@@ -444,12 +531,19 @@ const ServicesFormPage = () => {
         }, 1000);
       } else {
         // CREATE new bill
+        if (!formData.bank_account_id) {
+          toast.error('Please select a bank account before creating the bill.');
+          setLoading(false);
+          return;
+        }
+
         const billData = {
           header_id: parseInt(formData.header_id),
           bill_date: formData.bill_date.toISOString().split('T')[0],
           payment_term_id: parseInt(formData.payment_term_id),
           client_id: formData.client_id ? parseInt(formData.client_id) : null,
           notes: formData.notes,
+          bank_account_id: parseInt(formData.bank_account_id),
           services: services.map((s) => ({
             particulars_id: parseInt(s.particulars_id),
             particulars_other: s.particulars_other || null,
@@ -535,7 +629,11 @@ const ServicesFormPage = () => {
               <Dropdown
                 label="Bill For (Company)"
                 value={formData.header_id}
-                onChange={(value) => setFormData({ ...formData, header_id: value })}
+                onChange={(value) => {
+                  if (!editMode) {
+                    handleCompanyChange(value);
+                  }
+                }}
                 options={headerOptions}
                 placeholder="Select Company"
                 disabled={editMode}
@@ -705,6 +803,78 @@ const ServicesFormPage = () => {
                 </tr>
               </tfoot>
             </table>
+          </div>
+
+          {/* Bank Account Card */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center space-x-2">
+                <CreditCard className="w-5 h-5 text-gray-400" />
+                <h2 className="text-lg font-semibold text-gray-900">Bank Account</h2>
+              </div>
+              {/* Show "Change" button if:
+                  - Company is selected and has >1 account
+                  - AND user has permission (any user for DRAFT, SUPERADMIN for FINALIZED) */}
+              {companyBankAccounts.length > 1 && formData.header_id && (
+                (() => {
+                  const isSuperAdmin = user?.role === 'SUPERADMIN';
+                  const isFinalized = editMode && overrideMode; // overrideMode only for finalized
+                  const canChange = !isFinalized || isSuperAdmin;
+                  return canChange ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBankPopupSelection(formData.bank_account_id);
+                        setShowBankPopup(true);
+                      }}
+                      className="flex items-center space-x-1 px-3 py-1.5 text-sm text-primary-600 border border-primary-300 rounded-lg hover:bg-primary-50 transition-colors"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Change</span>
+                    </button>
+                  ) : null;
+                })()
+              )}
+            </div>
+
+            {bankAccountsLoading ? (
+              <div className="text-sm text-gray-400">Loading bank accounts...</div>
+            ) : !formData.header_id ? (
+              <div className="text-sm text-gray-400 italic">Select a company to see its bank account.</div>
+            ) : companyBankAccounts.length === 0 ? (
+              <div className="text-sm text-amber-600">
+                ⚠ This company has no bank account configured. Please add one in Company Master before creating a bill.
+              </div>
+            ) : selectedBankAccount ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <p className="text-xs text-gray-400 uppercase font-medium mb-0.5">Bank</p>
+                  <p className="text-gray-800 font-medium">{selectedBankAccount.bank_name || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 uppercase font-medium mb-0.5">Account Holder</p>
+                  <p className="text-gray-800">{selectedBankAccount.account_holder_name || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 uppercase font-medium mb-0.5">Account No.</p>
+                  <p className="text-gray-800 font-mono">{selectedBankAccount.account_number || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 uppercase font-medium mb-0.5">IFSC</p>
+                  <p className="text-gray-800 font-mono">{selectedBankAccount.ifsc_code || '—'}</p>
+                </div>
+                {selectedBankAccount.nick_name && (
+                  <div className="col-span-2 md:col-span-4">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-primary-50 text-primary-700 border border-primary-200">
+                      {selectedBankAccount.nick_name}
+                      {selectedBankAccount.is_primary && ' · Primary'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-sm text-gray-400 italic">No bank account selected.</div>
+            )}
           </div>
 
           {/* Submit Button */}
@@ -933,6 +1103,78 @@ const ServicesFormPage = () => {
 
       {/* Success Animation */}
       {showSuccessAnimation && <SuccessCheckmark onComplete={() => setShowSuccessAnimation(false)} />}
+
+      {/* Bank Account Selection Popup */}
+      <Modal
+        isOpen={showBankPopup}
+        onClose={() => setShowBankPopup(false)}
+        title="Select Bank Account"
+        size="sm"
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600">
+            This company has multiple bank accounts. Choose which one to use for this bill.
+          </p>
+          <div className="space-y-2">
+            {companyBankAccounts.map(account => (
+              <label
+                key={account.id}
+                className={`flex items-start space-x-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                  bankPopupSelection === account.id.toString()
+                    ? 'border-primary-500 bg-primary-50'
+                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="bank_account_popup"
+                  value={account.id.toString()}
+                  checked={bankPopupSelection === account.id.toString()}
+                  onChange={(e) => setBankPopupSelection(e.target.value)}
+                  className="mt-0.5 text-primary-600"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center space-x-2">
+                    <p className="text-sm font-medium text-gray-900">
+                      {account.bank_name || 'Bank Account'}
+                    </p>
+                    {account.is_primary && (
+                      <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Primary</span>
+                    )}
+                    {account.nick_name && (
+                      <span className="text-xs text-gray-500">· {account.nick_name}</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {account.account_holder_name && `${account.account_holder_name} · `}
+                    {account.account_number || '—'}
+                  </p>
+                  {account.ifsc_code && (
+                    <p className="text-xs font-mono text-gray-400">{account.ifsc_code}</p>
+                  )}
+                </div>
+              </label>
+            ))}
+          </div>
+          <div className="flex justify-end space-x-3 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowBankPopup(false)}
+              className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleBankPopupConfirm}
+              disabled={!bankPopupSelection}
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm disabled:opacity-50"
+            >
+              Confirm
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

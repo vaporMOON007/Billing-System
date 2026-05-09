@@ -6,17 +6,25 @@ const { auth } = require('../middleware/auth');
 // All routes require authentication
 router.use(auth);
 
-// Bank Accounts (for Mark Payment dropdown)
+// Bank Accounts (for Mark Payment dropdown — all companies)
 router.get('/bank-accounts', masterController.getBankAccounts);
 
 // Header Master (Companies)
 router.get('/headers', masterController.getAllHeaders);
 router.get('/headers/:id', masterController.getHeaderById);
 router.post('/headers', masterController.createHeader);
-// Split update: general details (name, address, bank, etc.) vs prefix (restricted once bills exist)
+// Split update: general details (name, address, etc.) vs prefix (restricted once bills exist)
+// PUT is aliased to PATCH /details for backwards compatibility with frontend masterAPI.updateHeader
+router.put('/headers/:id', masterController.updateHeaderDetails);
 router.patch('/headers/:id/details', masterController.updateHeaderDetails);
 router.patch('/headers/:id/prefix', masterController.updateHeaderPrefix);
 router.delete('/headers/:id', masterController.deleteHeader);
+
+// Bank accounts per company (multi-bank support — migration 006)
+router.get('/headers/:id/bank-accounts', masterController.getBankAccountsByHeader);
+router.post('/headers/:id/bank-accounts', masterController.addBankAccount);
+router.put('/headers/:id/bank-accounts/:bankId', masterController.updateBankAccount);
+router.delete('/headers/:id/bank-accounts/:bankId', masterController.deleteBankAccount);
 
 // Particulars (Services)
 router.get('/particulars', masterController.getAllParticulars);

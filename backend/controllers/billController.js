@@ -368,7 +368,7 @@ exports.getBillById = async (req, res) => {
         pt.term_name       AS payment_term
       FROM bills b
       LEFT JOIN header_master h  ON b.header_id = h.id
-      LEFT JOIN header_bank_details hb ON hb.header_id = h.id
+      LEFT JOIN header_bank_details hb ON hb.id = b.bank_account_id
       LEFT JOIN clients_master c  ON b.client_id = c.id
       LEFT JOIN payment_terms_master pt ON b.payment_term_id = pt.id
       WHERE b.id = $1`,
@@ -1099,7 +1099,7 @@ exports.generatePDF = async (req, res) => {
         pt.term_name as payment_term_name
        FROM bills b
        LEFT JOIN header_master h ON b.header_id = h.id
-       LEFT JOIN header_bank_details hbd ON h.id = hbd.header_id
+       LEFT JOIN header_bank_details hbd ON hbd.id = b.bank_account_id
        LEFT JOIN clients_master c ON b.client_id = c.id
        LEFT JOIN payment_terms_master pt ON b.payment_term_id = pt.id
        WHERE b.id = $1`,

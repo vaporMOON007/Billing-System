@@ -140,7 +140,7 @@ exports.getPaymentHistory = async (req, res) => {
         hbd.account_number         as received_account_number
        FROM bill_payments bp
        LEFT JOIN users u ON bp.recorded_by = u.id
-       LEFT JOIN header_bank_details hbd ON bp.received_in_account_id = hbd.header_id
+       LEFT JOIN header_bank_details hbd ON hbd.id = bp.received_in_account_id
        WHERE bp.bill_id = $1
        ORDER BY bp.payment_date DESC, bp.created_at DESC`,
       [billId]

@@ -44,7 +44,6 @@ coverage/
 .cache/
 
 # Database
-*.sql
 *.sqlite
 *.db
 !schema.sql

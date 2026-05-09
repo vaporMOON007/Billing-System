@@ -325,8 +325,12 @@ CREATE TABLE IF NOT EXISTS clients_master (
     city           VARCHAR(100),
     state          VARCHAR(100),
     pincode        VARCHAR(10),
+    pan            VARCHAR(10),
     CONSTRAINT gstin_format_check CHECK (
         gstin IS NULL OR gstin ~ '^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$'
+    ),
+    CONSTRAINT pan_format_check CHECK (
+        pan IS NULL OR pan ~ '^[A-Z]{5}[0-9]{4}[A-Z]{1}$'
     )
 );
 
@@ -358,18 +362,9 @@ CREATE INDEX IF NOT EXISTS idx_bill_counters_header_fy
     ON bill_number_counters (header_id, financial_year);
 
 
--- ----------------------------------------------------------------
--- 9. BILL NUMBER SEQUENCE  (global per financial year)
--- ----------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS bill_number_sequence (
-    id             SERIAL PRIMARY KEY,
-    financial_year VARCHAR(4)   NOT NULL UNIQUE,
-    last_sequence  INTEGER      DEFAULT 0,
-    updated_at     TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
-);
-
-COMMENT ON TABLE  bill_number_sequence                IS 'Tracks last bill number for each financial year';
-COMMENT ON COLUMN bill_number_sequence.financial_year IS 'Format: 2425 for FY 2024-25';
+-- bill_number_sequence (formerly table 9) has been dropped — it was dead code.
+-- The active counter is bill_number_counters (table 8) keyed on (header_id, financial_year).
+-- See migration 005 which drops the table from existing databases.
 
 
 -- ----------------------------------------------------------------
@@ -497,10 +492,10 @@ CREATE TABLE IF NOT EXISTS bill_payments (
 CREATE INDEX IF NOT EXISTS idx_bill_payments_bill_id ON bill_payments (bill_id);
 CREATE INDEX IF NOT EXISTS idx_bill_payments_date    ON bill_payments (payment_date);
 
-CREATE OR REPLACE TRIGGER update_payment_status_on_insert
-    AFTER INSERT ON bill_payments
-    FOR EACH ROW EXECUTE FUNCTION update_bill_payment_status();
-
+-- Single trigger handles INSERT, UPDATE, DELETE — previously there were two
+-- INSERT triggers (update_payment_status_on_insert + trigger_update_bill_payment_status)
+-- which caused the payment status function to fire twice on every insert.
+-- update_payment_status_on_insert has been dropped (see migration 005).
 CREATE OR REPLACE TRIGGER update_payment_status_on_delete
     AFTER DELETE ON bill_payments
     FOR EACH ROW EXECUTE FUNCTION update_bill_payment_status_on_delete();

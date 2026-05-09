@@ -206,9 +206,11 @@ exports.register = async (req, res) => {
     // Determine if this is an admin-created user (authenticated request) or self-registration
     const isAdminCreate = !!req.user;
 
-    // Security fix #26: self-registrants are always assigned STAFF role regardless of
+    // Security fix #26: self-registrants are always assigned EMPLOYEE role regardless of
     // what they send in the request body. Only authenticated admins may specify a role.
-    const assignedRole = isAdminCreate ? (role || 'EMPLOYEE') : 'STAFF';
+    // NOTE: 'STAFF' is not a valid role per the DB CHECK constraint — valid values are
+    // 'CA', 'EMPLOYEE', 'SUPERADMIN'. EMPLOYEE is the safe default for self-registrants.
+    const assignedRole = isAdminCreate ? (role || 'EMPLOYEE') : 'EMPLOYEE';
 
     // Insert new user — is_approved = true if created by admin, false if self-registered
     const result = await query(

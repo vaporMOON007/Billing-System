@@ -24,7 +24,7 @@ NPM_CMD  = r"C:\Program Files\nodejs\npm.cmd"
 
 # Ports (must match your .env / vite.config)
 BACKEND_PORT  = 5000
-FRONTEND_PORT = 5173
+FRONTEND_PORT = 3000
 
 # Open the app in the default browser automatically?
 OPEN_BROWSER = True

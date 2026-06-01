@@ -1,5 +1,6 @@
 const { query } = require('../config/database');
 const { logActivity } = require('./activityLogController');
+const { GSTIN_REGEX, PAN_REGEX } = require('../utils/validators');
 
 // @desc    Create new client
 // @route   POST /api/clients
@@ -25,8 +26,7 @@ exports.createClient = async (req, res) => {
 
     // Validate GSTIN format if provided
     if (gstinValue) {
-      const gstinRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-      if (!gstinRegex.test(gstinValue)) {
+      if (!GSTIN_REGEX.test(gstinValue)) {
         return res.status(400).json({
           success: false,
           message: 'Invalid GSTIN format'
@@ -39,8 +39,7 @@ exports.createClient = async (req, res) => {
 
     // Validate PAN format if provided
     if (panValue) {
-      const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
-      if (!panRegex.test(panValue)) {
+      if (!PAN_REGEX.test(panValue)) {
         return res.status(400).json({
           success: false,
           message: 'Invalid PAN format'
@@ -167,8 +166,7 @@ exports.updateClient = async (req, res) => {
 
     // Validate GSTIN format if provided
     if (updates.gstin) {
-      const gstinRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-      if (!gstinRegex.test(updates.gstin)) {
+      if (!GSTIN_REGEX.test(updates.gstin)) {
         return res.status(400).json({
           success: false,
           message: 'Invalid GSTIN format'
@@ -183,8 +181,7 @@ exports.updateClient = async (req, res) => {
 
     // Validate PAN format if provided
     if (updates.pan) {
-      const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
-      if (!panRegex.test(updates.pan)) {
+      if (!PAN_REGEX.test(updates.pan)) {
         return res.status(400).json({
           success: false,
           message: 'Invalid PAN format'
@@ -430,7 +427,7 @@ exports.bulkDeleteClients = async (req, res) => {
 
         // Log activity
         logActivity({
-          userId: req.user.id,
+          performedBy: req.user.id,
           action: 'DELETE_CLIENT',
           entityType: 'client',
           entityId: client.id,

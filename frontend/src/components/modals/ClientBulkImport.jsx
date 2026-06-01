@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
 import { clientAPI } from '../../services/api';
 import Modal from '../common/Modal';
+import { GSTIN_REGEX, PAN_REGEX } from '../../utils/helpers';
 
 const ClientBulkImport = ({ isOpen, onClose, onImportComplete }) => {
   const [file, setFile] = useState(null);
@@ -91,14 +92,12 @@ const ClientBulkImport = ({ isOpen, onClose, onImportComplete }) => {
       }
     }
     if (row['GSTIN'] && row['GSTIN'].toString().trim() !== '') {
-      const gstinRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-      if (!gstinRegex.test(row['GSTIN'].toString().trim())) {
+      if (!GSTIN_REGEX.test(row['GSTIN'].toString().trim())) {
         errors.push(`Row ${index}: GSTIN format is invalid (e.g. 27AABCU9603R1ZM)`);
       }
     }
     if (row['PAN'] && row['PAN'].toString().trim() !== '') {
-      const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
-      if (!panRegex.test(row['PAN'].toString().trim())) {
+      if (!PAN_REGEX.test(row['PAN'].toString().trim())) {
         errors.push(`Row ${index}: PAN format is invalid (e.g. AABCU9603R)`);
       }
     }

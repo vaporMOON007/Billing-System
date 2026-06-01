@@ -103,7 +103,10 @@ exports.getBankAccounts = async (req, res) => {
   try {
     const result = await query(
       `SELECT
+         hbd.id,
          hbd.header_id,
+         hbd.nick_name,
+         hbd.is_primary,
          hbd.bank_name,
          hbd.account_number,
          hbd.account_holder_name,
@@ -113,7 +116,7 @@ exports.getBankAccounts = async (req, res) => {
        FROM header_bank_details hbd
        JOIN header_master hm ON hm.id = hbd.header_id
        WHERE hbd.bank_name IS NOT NULL
-       ORDER BY hm.company_name ASC`
+       ORDER BY hm.company_name ASC, hbd.is_primary DESC`
     );
 
     res.json({

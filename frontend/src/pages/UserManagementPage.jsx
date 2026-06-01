@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Users, Plus, Edit2, KeyRound, ToggleLeft, ToggleRight, X, Check, Shield, User, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { Users, Plus, Edit2, KeyRound, ToggleLeft, ToggleRight, X, Check, Shield, User, Clock, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { userAPI } from '../services/api';
+import { userAPI, passwordResetAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
 const ROLE_LABELS = { CA: 'CA', EMPLOYEE: 'Employee', SUPERADMIN: 'Super Admin' };
@@ -56,11 +56,13 @@ export default function UserManagementPage() {
   const { user: currentUser } = useAuth();
   const isSuperAdmin = currentUser?.role === 'SUPERADMIN';
 
-  const [activeTab, setActiveTab]   = useState('users'); // 'users' | 'pending'
+  const [activeTab, setActiveTab]   = useState('users'); // 'users' | 'pending' | 'reset-requests'
   const [users, setUsers]           = useState([]);
   const [pendingUsers, setPendingUsers] = useState([]);
+  const [resetRequests, setResetRequests] = useState([]);
   const [loading, setLoading]       = useState(true);
   const [pendingLoading, setPendingLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
 
   // modal states
   const [editModal,   setEditModal]   = useState(null);  // user object
@@ -101,9 +103,25 @@ export default function UserManagementPage() {
     }
   };
 
+  const loadResetRequests = async () => {
+    if (!isSuperAdmin) return;
+    setResetLoading(true);
+    try {
+      const res = await passwordResetAPI.getPendingRequests();
+      setResetRequests(res.data.data);
+    } catch {
+      toast.error('Failed to load reset requests');
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadUsers();
-    if (isSuperAdmin) loadPendingUsers();
+    if (isSuperAdmin) {
+      loadPendingUsers();
+      loadResetRequests();
+    }
   }, []);
 
   // ── open edit modal ───────────────────────────────────────────────────
@@ -177,6 +195,31 @@ export default function UserManagementPage() {
       toast.error(e.response?.data?.message || 'Failed to create user');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // ── approve / reject password reset requests ─────────────────────────
+  const approveResetRequest = async (req) => {
+    try {
+      await passwordResetAPI.approveRequest(req.id);
+      toast.success(`Password reset approved for ${req.full_name}`);
+      loadResetRequests();
+      // Notify navbar badge
+      window.dispatchEvent(new CustomEvent('resetRequestsChanged'));
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to approve request');
+    }
+  };
+
+  const rejectResetRequest = async (req) => {
+    if (!window.confirm(`Reject password reset request for ${req.full_name}?`)) return;
+    try {
+      await passwordResetAPI.rejectRequest(req.id);
+      toast.success(`Password reset rejected for ${req.full_name}`);
+      loadResetRequests();
+      window.dispatchEvent(new CustomEvent('resetRequestsChanged'));
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to reject request');
     }
   };
 
@@ -256,6 +299,21 @@ export default function UserManagementPage() {
             {pendingUsers.length > 0 && (
               <span className="ml-2 inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-red-500 rounded-full">
                 {pendingUsers.length > 9 ? '9+' : pendingUsers.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => { setActiveTab('reset-requests'); loadResetRequests(); }}
+            className={`relative px-5 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${
+              activeTab === 'reset-requests'
+                ? 'bg-white border border-b-white border-gray-200 text-indigo-600 -mb-px'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Password Resets
+            {resetRequests.length > 0 && (
+              <span className="ml-2 inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-amber-500 rounded-full">
+                {resetRequests.length > 9 ? '9+' : resetRequests.length}
               </span>
             )}
           </button>
@@ -408,6 +466,84 @@ export default function UserManagementPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )
+      )}
+
+      {/* ── Password Reset Requests Tab ──────────────────────────────────── */}
+      {activeTab === 'reset-requests' && isSuperAdmin && (
+        resetLoading ? (
+          <div className="flex justify-center py-16">
+            <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+          </div>
+        ) : resetRequests.length === 0 ? (
+          <div className="text-center py-16">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <CheckCircle className="w-8 h-8 text-green-600" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-700 mb-1">No pending reset requests</h3>
+            <p className="text-sm text-gray-500">All password reset requests have been actioned.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm text-gray-500">
+                {resetRequests.length} pending password reset request{resetRequests.length !== 1 ? 's' : ''}
+              </p>
+              <button
+                onClick={loadResetRequests}
+                className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-indigo-600 transition-colors"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Refresh
+              </button>
+            </div>
+            {resetRequests.map(r => {
+              const expiresAt = new Date(r.expires_at);
+              const minutesLeft = Math.floor((expiresAt - new Date()) / 60_000);
+              const isUrgent = minutesLeft < 60;
+              return (
+                <div
+                  key={r.id}
+                  className={`bg-white border rounded-xl p-5 shadow-sm flex items-center justify-between gap-4 ${isUrgent ? 'border-orange-200' : 'border-amber-200'}`}
+                >
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className={`w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 ${isUrgent ? 'bg-orange-100' : 'bg-amber-100'}`}>
+                      <KeyRound className={`w-5 h-5 ${isUrgent ? 'text-orange-600' : 'text-amber-600'}`} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-900 truncate">{r.full_name}</p>
+                      <p className="text-sm text-gray-500 truncate">@{r.username} · {ROLE_LABELS[r.role] || r.role}</p>
+                      <div className="flex items-center gap-1 mt-1">
+                        <Clock className="w-3 h-3 text-gray-400" />
+                        <span className={`text-xs ${isUrgent ? 'text-orange-600 font-medium' : 'text-gray-400'}`}>
+                          {minutesLeft > 60
+                            ? `Expires in ${Math.floor(minutesLeft / 60)}h ${minutesLeft % 60}m`
+                            : minutesLeft > 0
+                              ? `Expires in ${minutesLeft}m — act soon!`
+                              : 'Expiring very soon'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      onClick={() => approveResetRequest(r)}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => rejectResetRequest(r)}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-red-50 text-red-600 border border-red-200 text-sm font-medium rounded-lg hover:bg-red-100 transition-colors"
+                    >
+                      <XCircle className="w-4 h-4" />
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )
       )}

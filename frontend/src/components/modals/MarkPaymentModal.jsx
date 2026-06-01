@@ -222,8 +222,8 @@ const MarkPaymentModal = ({ isOpen, onClose, bill, onPaymentMarked }) => {
                   <option disabled>No bank accounts found — add them in Company Master</option>
                 ) : (
                   bankAccounts.map(acc => (
-                    <option key={acc.header_id} value={acc.header_id}>
-                      {acc.bank_name} — A/C ...{String(acc.account_number || '').slice(-4)} ({acc.company_name})
+                    <option key={acc.id} value={acc.id}>
+                      {acc.company_name} — {acc.nick_name || acc.bank_name} ...{String(acc.account_number || '').slice(-4)}{acc.is_primary ? ' (Primary)' : ''}
                     </option>
                   ))
                 )}

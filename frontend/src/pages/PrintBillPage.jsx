@@ -478,8 +478,11 @@ const PrintBillPage = () => {
   };
 
   const confirmDelete = async () => {
-    if (deleteConfirmText !== billToDelete.bill_no) {
-      toast.error('Bill number does not match. Please type the exact bill number.');
+    const confirmKey = billToDelete.bill_no || 'DELETE';
+    if (deleteConfirmText !== confirmKey) {
+      toast.error(billToDelete.bill_no
+        ? 'Bill number does not match. Please type the exact bill number.'
+        : 'Please type DELETE to confirm.');
       return;
     }
 
@@ -1830,7 +1833,25 @@ const PrintBillPage = () => {
               <h4 className="text-sm font-semibold text-gray-900 mb-3">Bill to be Deleted</h4>
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="text-gray-600">Bill Number:</div>
-                <div className="font-semibold text-gray-900">{billToDelete.bill_no}</div>
+                <div className="flex items-center gap-2">
+                  {billToDelete.bill_no ? (
+                    <>
+                      <span className="font-mono font-semibold text-gray-900">{billToDelete.bill_no}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(billToDelete.bill_no);
+                          toast.success('Bill number copied');
+                        }}
+                        className="text-xs text-indigo-600 hover:text-indigo-800 underline"
+                      >
+                        Copy
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-sm text-gray-500 italic">Not assigned (Draft)</span>
+                  )}
+                </div>
                 
                 <div className="text-gray-600">Total Amount:</div>
                 <div className="font-semibold text-red-600">{formatCurrency(billToDelete.total_invoice_value)}</div>
@@ -1846,7 +1867,11 @@ const PrintBillPage = () => {
 
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700">
-              Type <span className="font-mono font-bold text-red-600">{billToDelete?.bill_no}</span> to confirm deletion:
+              {billToDelete?.bill_no ? (
+                <>Type <span className="font-mono font-bold text-red-600">{billToDelete.bill_no}</span> to confirm deletion:</>
+              ) : (
+                <>Type <span className="font-mono font-bold text-red-600">DELETE</span> to confirm deletion of this draft:</>
+              )}
             </label>
             <input
               type="text"
@@ -1855,8 +1880,10 @@ const PrintBillPage = () => {
               placeholder="Enter bill number exactly"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
             />
-            {deleteConfirmText && deleteConfirmText !== billToDelete?.bill_no && (
-              <p className="text-xs text-red-600">Bill number does not match</p>
+            {deleteConfirmText && deleteConfirmText !== (billToDelete?.bill_no || 'DELETE') && (
+              <p className="text-xs text-red-600">
+                {billToDelete?.bill_no ? 'Bill number does not match' : 'Please type DELETE exactly'}
+              </p>
             )}
           </div>
 
@@ -1873,7 +1900,7 @@ const PrintBillPage = () => {
             </button>
             <button
               onClick={confirmDelete}
-              disabled={deleteConfirmText !== billToDelete?.bill_no}
+              disabled={deleteConfirmText !== (billToDelete?.bill_no || 'DELETE')}
               className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Delete Permanently

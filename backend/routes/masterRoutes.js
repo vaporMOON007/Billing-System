@@ -13,11 +13,9 @@ router.get('/bank-accounts', masterController.getBankAccounts);
 router.get('/headers', masterController.getAllHeaders);
 router.get('/headers/:id', masterController.getHeaderById);
 router.post('/headers', masterController.createHeader);
-// Split update: general details (name, address, etc.) vs prefix (restricted once bills exist)
 // PUT is aliased to PATCH /details for backwards compatibility with frontend masterAPI.updateHeader
 router.put('/headers/:id', masterController.updateHeaderDetails);
 router.patch('/headers/:id/details', masterController.updateHeaderDetails);
-router.patch('/headers/:id/prefix', masterController.updateHeaderPrefix);
 router.delete('/headers/:id', masterController.deleteHeader);
 
 // Bank accounts per company (multi-bank support — migration 006)

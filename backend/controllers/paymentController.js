@@ -184,6 +184,34 @@ exports.updatePayment = async (req, res) => {
     }
 
     const mode = payment_mode && validModes.includes(payment_mode) ? payment_mode : existing.rows[0].payment_mode;
+    const existingPayment = existing.rows[0];
+
+    // Validate new amount doesn't cause the bill to be overpaid
+    if (amount_paid !== undefined && amount_paid !== null) {
+      const newAmount = parseFloat(amount_paid);
+      if (isNaN(newAmount) || newAmount <= 0) {
+        return res.status(400).json({ success: false, message: 'Amount must be a positive number' });
+      }
+      const balanceCheck = await query(
+        `SELECT b.total_invoice_value,
+                COALESCE(SUM(bp.amount_paid), 0) AS other_payments_total
+         FROM bills b
+         LEFT JOIN bill_payments bp ON bp.bill_id = b.id AND bp.id != $1
+         WHERE b.id = $2
+         GROUP BY b.total_invoice_value`,
+        [id, existingPayment.bill_id]
+      );
+      if (balanceCheck.rows.length > 0) {
+        const { total_invoice_value, other_payments_total } = balanceCheck.rows[0];
+        const maxAllowed = parseFloat(total_invoice_value) - parseFloat(other_payments_total);
+        if (newAmount > maxAllowed) {
+          return res.status(400).json({
+            success: false,
+            message: `Amount ₹${newAmount.toFixed(2)} exceeds the remaining bill balance of ₹${maxAllowed.toFixed(2)}. Cannot overpay a bill.`
+          });
+        }
+      }
+    }
 
     const result = await query(
       `UPDATE bill_payments
@@ -236,17 +264,42 @@ exports.deletePayment = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await query(
-      'DELETE FROM bill_payments WHERE id = $1 RETURNING *',
+    // Fetch payment details BEFORE deleting — needed for audit log
+    const fetchResult = await query(
+      `SELECT bp.id, bp.bill_id, bp.amount_paid, bp.payment_mode, bp.payment_date,
+              b.bill_no
+       FROM bill_payments bp
+       LEFT JOIN bills b ON b.id = bp.bill_id
+       WHERE bp.id = $1`,
       [id]
     );
 
-    if (result.rows.length === 0) {
+    if (fetchResult.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Payment not found'
       });
     }
+
+    const payment = fetchResult.rows[0];
+
+    await query('DELETE FROM bill_payments WHERE id = $1', [id]);
+
+    logActivity({
+      performedBy: req.user.id,
+      action: 'DELETE_PAYMENT',
+      entityType: 'PAYMENT',
+      entityId: parseInt(id),
+      description: `Deleted payment of ₹${parseFloat(payment.amount_paid).toFixed(2)} via ${payment.payment_mode} on ${payment.payment_date} from bill ${payment.bill_no || payment.bill_id}`,
+      metadata: {
+        payment_id:   parseInt(id),
+        bill_id:      payment.bill_id,
+        bill_no:      payment.bill_no,
+        amount_paid:  payment.amount_paid,
+        payment_mode: payment.payment_mode,
+        payment_date: payment.payment_date,
+      },
+    });
 
     res.json({
       success: true,

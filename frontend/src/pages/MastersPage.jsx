@@ -541,12 +541,12 @@ const MastersPage = () => {
                           <td className="px-4 py-4">
                             <button
                               onClick={() => toggleCompanyExpand(item.id)}
-                              className="text-gray-400 hover:text-primary-600 transition-colors"
+                              className="text-gray-500 hover:text-primary-600 transition-colors"
                               title="Show bank accounts"
                             >
                               {expandedCompanyId === item.id
-                                ? <ChevronDown className="w-4 h-4" />
-                                : <ChevronRight className="w-4 h-4" />
+                                ? <ChevronDown className="w-5 h-5 stroke-2" />
+                                : <ChevronRight className="w-5 h-5 stroke-2" />
                               }
                             </button>
                           </td>

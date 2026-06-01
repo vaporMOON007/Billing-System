@@ -23,7 +23,7 @@ router.get('/:id', billController.getBillById);
 router.put('/:id', billController.updateBill);
 router.put('/:id/finalize', billController.finalizeBill);
 router.post('/:id/unmerge', billController.unmergeBill);
-router.delete('/:id', billController.deleteBill);
+router.delete('/:id', authorize('CA'), billController.deleteBill);
 
 // PDF and Email
 router.get('/:id/pdf', billController.generatePDF);

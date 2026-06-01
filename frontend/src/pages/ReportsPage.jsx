@@ -5,10 +5,9 @@ import {
   IndianRupee, ChevronRight, Clock, Download
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import * as XLSX from 'xlsx';
 import { reportAPI, masterAPI } from '../services/api';
-import api from '../services/api';
 import { formatCurrency, getYearOptions } from '../utils/helpers';
+import { exportBillsToExcel } from '../utils/exportUtils';
 
 // ── small summary card ────────────────────────────────────────────────────
 const KPICard = ({ icon: Icon, label, value, color }) => (
@@ -82,102 +81,13 @@ export default function ReportsPage() {
   useEffect(() => { load(); }, []);
 
   // ── Export bills to Excel ─────────────────────────────────────────────
-  const handleExportExcel = async () => {
-    try {
-      const params = {};
-      if (fy)           params.financial_year = fy;
-      if (dateFrom)     params.date_from      = dateFrom;
-      if (dateTo)       params.date_to        = dateTo;
-      if (onlyFinalized) params.status        = 'FINALIZED';
-
-      const response = await api.get('/reports/export-bills', { params });
-      const { bills, absorbed_bills, totals } = response.data.data;
-
-      const HEADERS = [
-        'Bill No', 'Bill Date', 'Due Date', 'Company', 'Client',
-        'Invoice Amount', 'Total Paid', 'Balance', 'Bill Status', 'Payment Status',
-        'Payment Date', 'Payment Amount', 'Payment Mode',
-        'UTR / Ref No', 'Cheque No', 'Collected By',
-        'Received In Bank', 'Account Holder', 'Account Number',
-        'Write-off Amount', 'Write-off Date', 'Write-off Notes'
-      ];
-
-      const billsToRows = (billList) => {
-        const rows = [];
-        billList.forEach(bill => {
-          const writeoffAmt = parseFloat(bill.writeoff_amount || 0);
-          const base = [
-            bill.bill_no,
-            bill.bill_date  ? new Date(bill.bill_date)  : '',
-            bill.due_date   ? new Date(bill.due_date)   : '',
-            bill.company_name || '',
-            bill.client_name  || '',
-            parseFloat(bill.total_invoice_value) || 0,
-            parseFloat(bill.total_paid || 0),
-            parseFloat(bill.balance)   || 0,
-            bill.status,
-            bill.payment_status || 'UNPAID',
-          ];
-          const writeoffCols = [
-            writeoffAmt > 0 ? writeoffAmt : '',
-            writeoffAmt > 0 && bill.writeoff_date ? new Date(bill.writeoff_date) : '',
-            bill.writeoff_notes || '',
-          ];
-          if (bill.payments && bill.payments.length > 0) {
-            bill.payments.forEach((pmt, idx) => {
-              rows.push([
-                ...base,
-                pmt.payment_date ? new Date(pmt.payment_date) : '',
-                parseFloat(pmt.amount_paid) || 0,
-                pmt.payment_mode            || '',
-                pmt.utr                     || '',
-                pmt.cheque_no               || '',
-                pmt.cash_collected_by       || '',
-                pmt.received_in_bank        || '',
-                pmt.received_account_holder || '',
-                pmt.received_account_number || '',
-                // Show write-off only on first payment row to avoid repetition
-                ...(idx === 0 ? writeoffCols : ['', '', '']),
-              ]);
-            });
-          } else {
-            rows.push([...base, '', '', '', '', '', '', '', '', '', ...writeoffCols]);
-          }
-        });
-        return rows;
-      };
-
-      const mainRows  = billsToRows(bills);
-      const totalsRow = [
-        'TOTAL', '', '', '', '',
-        totals.total_billed, totals.total_paid, totals.total_balance,
-        '', '', '', '', '', '', '', '', '', '', '',
-        totals.total_writeoff || 0, '', ''
-      ];
-      const mainData  = [HEADERS, ...mainRows, totalsRow];
-      const mainSheet = XLSX.utils.aoa_to_sheet(mainData);
-      mainSheet['!cols'] = [
-        { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 22 }, { wch: 26 },
-        { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
-        { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 20 }, { wch: 14 },
-        { wch: 20 }, { wch: 22 }, { wch: 22 }, { wch: 20 },
-        { wch: 16 }, { wch: 14 }, { wch: 28 },
-      ];
-
-      const absorbedRows = billsToRows(absorbed_bills || []);
-      const absorbedData = [HEADERS, ...(absorbedRows.length ? absorbedRows : [['No absorbed bills in this period']])];
-      const absorbedSheet = XLSX.utils.aoa_to_sheet(absorbedData);
-      absorbedSheet['!cols'] = mainSheet['!cols'];
-
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, mainSheet,     'Bills');
-      XLSX.utils.book_append_sheet(wb, absorbedSheet, 'Absorbed Bills');
-      XLSX.writeFile(wb, `bills-export-${new Date().toISOString().split('T')[0]}.xlsx`);
-      toast.success('Exported successfully');
-    } catch (error) {
-      console.error('Export error:', error);
-      toast.error('Failed to export data');
-    }
+  const handleExportExcel = () => {
+    const params = {};
+    if (fy)            params.financial_year = fy;
+    if (dateFrom)      params.date_from      = dateFrom;
+    if (dateTo)        params.date_to        = dateTo;
+    if (onlyFinalized) params.status         = 'FINALIZED';
+    exportBillsToExcel(params);
   };
 
   // ── navigate to Print Bill with filter pre-applied ───────────────────

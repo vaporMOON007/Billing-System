@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileText, TrendingUp, IndianRupee, Clock, Plus } from 'lucide-react';
-import { formatCurrency, formatDate, getFinancialYear, getYearOptions } from '../utils/helpers';
+import { formatCurrency, getFinancialYear, getYearOptions } from '../utils/helpers';
 import toast from 'react-hot-toast';
-import * as XLSX from 'xlsx';
 import api from '../services/api';
+import { exportBillsToExcel } from '../utils/exportUtils';
 import Dropdown from '../components/common/Dropdown';
 import DatePicker from 'react-datepicker';
 import { CardSkeleton } from '../components/common/SkeletonLoader';
@@ -120,156 +120,15 @@ const Dashboard = () => {
     });
   };
 
-  const handleExportExcel = async () => {
-    try {
-      const params = {};
-      if (filters.financial_year)  params.financial_year  = filters.financial_year;
-      if (filters.date_from)       params.date_from       = filters.date_from;
-      if (filters.date_to)         params.date_to         = filters.date_to;
-      if (filters.header_id)       params.header_id       = filters.header_id;
-      if (filters.client_id)       params.client_id       = filters.client_id;
-      if (filters.payment_status)  params.payment_status  = filters.payment_status;
-
-      const response = await api.get('/reports/export-bills', { params });
-      const { bills, absorbed_bills, totals } = response.data.data;
-
-      // ── helper: flatten bills array into worksheet rows ──────────────
-      const HEADERS = [
-        'Bill No', 'Bill Date', 'Due Date', 'Company', 'Client',
-        'Invoice Amount', 'Total Paid', 'Balance', 'Bill Status', 'Payment Status',
-        'Payment Date', 'Payment Amount', 'Payment Mode',
-        'UTR / Ref No', 'Cheque No', 'Collected By',
-        'Received In Bank', 'Account Holder', 'Account Number',
-        'Write-off Amount', 'Write-off Date', 'Write-off Notes'
-      ];
-
-      const billsToRows = (billList) => {
-        const rows = [];
-        billList.forEach(bill => {
-          const writeoffAmt = parseFloat(bill.writeoff_amount || 0);
-          const base = [
-            bill.bill_no,
-            bill.bill_date    ? new Date(bill.bill_date)    : '',
-            bill.due_date     ? new Date(bill.due_date)     : '',
-            bill.company_name || '',
-            bill.client_name  || '',
-            parseFloat(bill.total_invoice_value) || 0,
-            parseFloat(bill.total_paid || 0),
-            parseFloat(bill.balance)   || 0,
-            bill.status,
-            bill.payment_status || 'UNPAID',
-          ];
-          const writeoffCols = [
-            writeoffAmt > 0 ? writeoffAmt : '',
-            writeoffAmt > 0 && bill.writeoff_date ? new Date(bill.writeoff_date) : '',
-            bill.writeoff_notes || '',
-          ];
-          if (bill.payments && bill.payments.length > 0) {
-            bill.payments.forEach((pmt, idx) => {
-              rows.push([
-                ...base,
-                pmt.payment_date ? new Date(pmt.payment_date) : '',
-                parseFloat(pmt.amount_paid) || 0,
-                pmt.payment_mode              || '',
-                pmt.utr                       || '',
-                pmt.cheque_no                 || '',
-                pmt.cash_collected_by         || '',
-                pmt.received_in_bank          || '',
-                pmt.received_account_holder   || '',
-                pmt.received_account_number   || '',
-                // Show write-off only on first payment row to avoid repetition
-                ...(idx === 0 ? writeoffCols : ['', '', '']),
-              ]);
-            });
-          } else {
-            rows.push([...base, '', '', '', '', '', '', '', '', '', ...writeoffCols]);
-          }
-        });
-        return rows;
-      };
-
-      // ── Build main sheet ─────────────────────────────────────────────
-      const mainRows   = billsToRows(bills);
-      const totalsRow  = [
-        'TOTAL', '', '', '', '',
-        totals.total_billed, totals.total_paid, totals.total_balance,
-        '', '', '', '', '', '', '', '', '', '', '',
-        totals.total_writeoff || 0, '', ''
-      ];
-      const mainData   = [HEADERS, ...mainRows, totalsRow];
-      const mainSheet  = XLSX.utils.aoa_to_sheet(mainData);
-
-      // Date cols: B(1), C(2), K(10), U(20=write-off date)
-      const dateFmt = 'dd/mm/yyyy';
-      const dateColIndices = [1, 2, 10, 20];
-      const numFmt   = '#,##0.00';
-      // Amt cols: F(5), G(6), H(7), L(11), T(19=write-off amount)
-      const amtColIndices = [5, 6, 7, 11, 19];
-
-      // Apply column widths
-      mainSheet['!cols'] = [
-        { wch: 16 }, // Bill No
-        { wch: 12 }, // Bill Date
-        { wch: 12 }, // Due Date
-        { wch: 22 }, // Company
-        { wch: 26 }, // Client
-        { wch: 14 }, // Invoice
-        { wch: 12 }, // Paid
-        { wch: 12 }, // Balance
-        { wch: 12 }, // Status
-        { wch: 14 }, // Payment Status
-        { wch: 12 }, // Pmt Date
-        { wch: 14 }, // Pmt Amount
-        { wch: 12 }, // Mode
-        { wch: 20 }, // UTR
-        { wch: 14 }, // Cheque
-        { wch: 20 }, // Collected By
-        { wch: 22 }, // Bank
-        { wch: 22 }, // Account Holder
-        { wch: 20 }, // Account Number
-        { wch: 16 }, // Write-off Amount
-        { wch: 14 }, // Write-off Date
-        { wch: 28 }, // Write-off Notes
-      ];
-
-      // Format cells
-      const range = XLSX.utils.decode_range(mainSheet['!ref'] || 'A1');
-      for (let R = 1; R <= range.e.r; R++) {
-        dateColIndices.forEach(C => {
-          const cell = mainSheet[XLSX.utils.encode_cell({ r: R, c: C })];
-          if (cell && cell.t === 'd') cell.z = dateFmt;
-        });
-        amtColIndices.forEach(C => {
-          const cell = mainSheet[XLSX.utils.encode_cell({ r: R, c: C })];
-          if (cell && cell.t === 'n') cell.z = numFmt;
-        });
-      }
-
-      // Bold header row
-      for (let C = 0; C <= HEADERS.length - 1; C++) {
-        const cell = mainSheet[XLSX.utils.encode_cell({ r: 0, c: C })];
-        if (cell) cell.s = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '4F46E5' } } };
-      }
-
-      // ── Build absorbed sheet ─────────────────────────────────────────
-      const absorbedRows = billsToRows(absorbed_bills || []);
-      const absorbedData = [HEADERS, ...(absorbedRows.length ? absorbedRows : [['No absorbed bills in this period']])];
-      const absorbedSheet = XLSX.utils.aoa_to_sheet(absorbedData);
-      absorbedSheet['!cols'] = mainSheet['!cols'];
-
-      // ── Assemble workbook ────────────────────────────────────────────
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, mainSheet,     'Bills');
-      XLSX.utils.book_append_sheet(wb, absorbedSheet, 'Absorbed Bills');
-
-      const filename = `bills-export-${new Date().toISOString().split('T')[0]}.xlsx`;
-      XLSX.writeFile(wb, filename);
-
-      toast.success('Exported successfully');
-    } catch (error) {
-      console.error('Export error:', error);
-      toast.error('Failed to export data');
-    }
+  const handleExportExcel = () => {
+    const params = {};
+    if (filters.financial_year)  params.financial_year  = filters.financial_year;
+    if (filters.date_from)       params.date_from       = filters.date_from;
+    if (filters.date_to)         params.date_to         = filters.date_to;
+    if (filters.header_id)       params.header_id       = filters.header_id;
+    if (filters.client_id)       params.client_id       = filters.client_id;
+    if (filters.payment_status)  params.payment_status  = filters.payment_status;
+    exportBillsToExcel(params);
   };
 
   const statCards = [

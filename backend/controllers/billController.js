@@ -22,6 +22,14 @@ exports.createBill = async (req, res) => {
 
     const userId = req.user.id;
 
+    // Validate services array early — before any DB insert
+    if (!services || !Array.isArray(services) || services.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'A bill must have at least one service line.'
+      });
+    }
+
     // Calculate financial year from bill_date (e.g., "2024-25")
     const dateObj = new Date(bill_date);
     const month = dateObj.getMonth() + 1;
@@ -958,52 +966,58 @@ exports.searchBillByNumber = async (req, res) => {
 };
 
 // ============================================================================
-// IN-MEMORY EDIT LOCK STORE
+// DB-BACKED EDIT LOCK STORE (migration 009)
+// Locks live in two nullable columns on the bills table:
+//   lock_held_by    INTEGER REFERENCES users(id) ON DELETE SET NULL
+//   lock_expires_at TIMESTAMP
+// Survives server restarts. Lazy cleanup: expired locks overwritten on acquire.
 // ============================================================================
 
-const activeLocks = new Map(); // billId -> { userId, userName, expiresAt }
 const LOCK_DURATION_MS = 5 * 60 * 1000; // 5 minutes
-
-const cleanExpiredLocks = () => {
-  const now = Date.now();
-  for (const [billId, lock] of activeLocks.entries()) {
-    if (lock.expiresAt < now) activeLocks.delete(billId);
-  }
-};
 
 // @desc    Acquire edit lock on a bill
 // @route   POST /api/bills/:id/lock
 // @access  Private
 exports.acquireLock = async (req, res) => {
   try {
-    cleanExpiredLocks();
     const { id } = req.params;
     const userId = req.user.id;
     const userName = req.user.full_name || req.user.username;
-    const now = Date.now();
+    const now = new Date();
 
-    const existingLock = activeLocks.get(id);
+    const lockResult = await query(
+      `SELECT b.lock_held_by, b.lock_expires_at, u.full_name AS lock_holder_name
+       FROM bills b
+       LEFT JOIN users u ON u.id = b.lock_held_by
+       WHERE b.id = $1`,
+      [id]
+    );
 
-    if (existingLock && existingLock.expiresAt > now && existingLock.userId !== userId) {
+    if (lockResult.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Bill not found' });
+    }
+
+    const { lock_held_by, lock_expires_at, lock_holder_name } = lockResult.rows[0];
+
+    if (lock_held_by && lock_held_by !== userId && lock_expires_at && new Date(lock_expires_at) > now) {
       return res.json({
         success: false,
-        lockedBy: existingLock.userId,
-        lockedByName: existingLock.userName,
-        expiresAt: new Date(existingLock.expiresAt).toISOString()
+        lockedBy: lock_held_by,
+        lockedByName: lock_holder_name,
+        expiresAt: new Date(lock_expires_at).toISOString()
       });
     }
 
-    const expiresAt = now + LOCK_DURATION_MS;
-    activeLocks.set(id, { userId, userName, expiresAt });
+    const expiresAt = new Date(now.getTime() + LOCK_DURATION_MS);
+    await query(
+      'UPDATE bills SET lock_held_by = $1, lock_expires_at = $2 WHERE id = $3',
+      [userId, expiresAt, id]
+    );
 
-    res.json({
-      success: true,
-      userName,
-      expiresAt: new Date(expiresAt).toISOString()
-    });
+    res.json({ success: true, userName, expiresAt: expiresAt.toISOString() });
   } catch (error) {
     console.error('Acquire lock error:', error);
-    res.status(500).json({ success: false, message: 'Failed to acquire lock', error: error.message });
+    res.status(500).json({ success: false, message: 'Failed to acquire lock' });
   }
 };
 
@@ -1014,14 +1028,20 @@ exports.refreshLock = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
+    const expiresAt = new Date(Date.now() + LOCK_DURATION_MS);
 
-    const existingLock = activeLocks.get(id);
-    if (existingLock && existingLock.userId === userId) {
-      existingLock.expiresAt = Date.now() + LOCK_DURATION_MS;
-      activeLocks.set(id, existingLock);
+    const result = await query(
+      `UPDATE bills SET lock_expires_at = $1
+       WHERE id = $2 AND lock_held_by = $3
+       RETURNING id`,
+      [expiresAt, id, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(409).json({ success: false, message: 'Lock lost — please reload the bill.' });
     }
 
-    res.json({ success: true });
+    res.json({ success: true, expiresAt: expiresAt.toISOString() });
   } catch (error) {
     console.error('Refresh lock error:', error);
     res.status(500).json({ success: false, message: 'Failed to refresh lock' });
@@ -1036,10 +1056,10 @@ exports.releaseLock = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const existingLock = activeLocks.get(id);
-    if (existingLock && existingLock.userId === userId) {
-      activeLocks.delete(id);
-    }
+    await query(
+      'UPDATE bills SET lock_held_by = NULL, lock_expires_at = NULL WHERE id = $1 AND lock_held_by = $2',
+      [id, userId]
+    );
 
     res.json({ success: true });
   } catch (error) {
@@ -1053,21 +1073,32 @@ exports.releaseLock = async (req, res) => {
 // @access  Private
 exports.checkLock = async (req, res) => {
   try {
-    cleanExpiredLocks();
     const { id } = req.params;
-    const now = Date.now();
+    const now = new Date();
 
-    const existingLock = activeLocks.get(id);
+    const result = await query(
+      `SELECT b.lock_held_by, b.lock_expires_at, u.full_name AS lock_holder_name
+       FROM bills b
+       LEFT JOIN users u ON u.id = b.lock_held_by
+       WHERE b.id = $1`,
+      [id]
+    );
 
-    if (!existingLock || existingLock.expiresAt <= now) {
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Bill not found' });
+    }
+
+    const { lock_held_by, lock_expires_at, lock_holder_name } = result.rows[0];
+
+    if (!lock_held_by || !lock_expires_at || new Date(lock_expires_at) <= now) {
       return res.json({ isLocked: false, lockedBy: null, lockedByName: null, expiresAt: null });
     }
 
     res.json({
       isLocked: true,
-      lockedBy: existingLock.userId,
-      lockedByName: existingLock.userName,
-      expiresAt: new Date(existingLock.expiresAt).toISOString()
+      lockedBy: lock_held_by,
+      lockedByName: lock_holder_name,
+      expiresAt: new Date(lock_expires_at).toISOString()
     });
   } catch (error) {
     console.error('Check lock error:', error);
@@ -1642,9 +1673,15 @@ exports.mergeBills = async (req, res) => {
     const financialYear  = fyears[0];
     const clientId       = clientIds2.length === 1 ? clientIds2[0] : null;
     const billDates      = sourceBills.map(b => new Date(b.bill_date));
-    const dueDates       = sourceBills.map(b => new Date(b.due_date));
     const earliestDate   = new Date(Math.min(...billDates)).toISOString().split('T')[0];
-    const latestDueDate  = new Date(Math.max(...dueDates)).toISOString().split('T')[0];
+
+    // Filter out null due dates — new Date(null) produces epoch (Jan 1 1970) which is wrong
+    const validDueDates  = sourceBills
+      .map(b => b.due_date ? new Date(b.due_date) : null)
+      .filter(Boolean);
+    const latestDueDate  = validDueDates.length > 0
+      ? new Date(Math.max(...validDueDates)).toISOString().split('T')[0]
+      : null;
 
     // Get payment_term_id — use common one if all match, else fall back to the first bill's term
     const ptIds   = [...new Set(sourceBills.map(b => b.payment_term_id).filter(Boolean))];

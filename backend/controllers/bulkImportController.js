@@ -1,5 +1,6 @@
 const { query } = require('../config/database');
 const { logActivity } = require('./activityLogController');
+const { GSTIN_REGEX, PAN_REGEX } = require('../utils/validators');
 
 // @desc    Bulk import clients from CSV with smart upsert logic
 // @route   POST /api/clients/bulk-import
@@ -19,10 +20,7 @@ exports.bulkImportClients = async (req, res) => {
     const created = [];
     const errors = [];
 
-    // GSTIN validation regex
-    const gstinRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-    // PAN validation regex
-    const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+    // GSTIN_REGEX and PAN_REGEX imported from ../utils/validators
 
     for (let i = 0; i < clients.length; i++) {
       const row = clients[i];
@@ -53,7 +51,7 @@ exports.bulkImportClients = async (req, res) => {
         row.gstin = row.gstin && row.gstin.trim() !== '' ? row.gstin.trim() : null;
 
         // Validate GSTIN format if provided
-        if (row.gstin && !gstinRegex.test(row.gstin)) {
+        if (row.gstin && !GSTIN_REGEX.test(row.gstin)) {
           errors.push({
             row: rowNumber,
             client_name: row.client_name,
@@ -66,7 +64,7 @@ exports.bulkImportClients = async (req, res) => {
         row.pan = row.pan && row.pan.trim() !== '' ? row.pan.trim() : null;
 
         // Validate PAN format if provided
-        if (row.pan && !panRegex.test(row.pan)) {
+        if (row.pan && !PAN_REGEX.test(row.pan)) {
           errors.push({
             row: rowNumber,
             client_name: row.client_name,

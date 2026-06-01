@@ -1,99 +1,165 @@
-import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { KeyRound, Eye, EyeOff, ArrowLeft } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { KeyRound, Eye, EyeOff, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { authAPI } from '../../services/api';
+import { passwordResetAPI } from '../../services/api';
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const formatTimeLeft = (expiresAt) => {
+  if (!expiresAt) return '';
+  const diff = new Date(expiresAt) - new Date();
+  if (diff <= 0) return 'Expired';
+  const hours   = Math.floor(diff / 3_600_000);
+  const minutes = Math.floor((diff % 3_600_000) / 60_000);
+  if (hours > 0) return `${hours}h ${minutes}m remaining`;
+  return `${minutes}m remaining`;
+};
+
+// ── Main component ─────────────────────────────────────────────────────────────
 const ResetPassword = () => {
-  const navigate = useNavigate();
-  const [step, setStep] = useState(1); // 1: Enter Email, 2: Reset Password
-  const [formData, setFormData] = useState({
-    email: '',
-    username: '',
-    newPassword: '',
-    confirmPassword: ''
-  });
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [verifiedUser, setVerifiedUser] = useState(null);
+  // Form state
+  const [username,    setUsername]    = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPwd,  setConfirmPwd]  = useState('');
+  const [showPwd,     setShowPwd]     = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
-  const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
+  // Request state
+  const [loading,        setLoading]        = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [requestStatus,  setRequestStatus]  = useState(null); // null | 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED'
+  const [expiresAt,      setExpiresAt]      = useState(null);
+  const [submitted,      setSubmitted]      = useState(false);
+
+  // ── Check status when username field blurs ─────────────────────────────────
+  const checkStatus = async (usernameVal) => {
+    if (!usernameVal || !usernameVal.trim()) return;
+    setCheckingStatus(true);
+    try {
+      const res = await passwordResetAPI.getStatus(usernameVal.trim());
+      setRequestStatus(res.data.status);
+      setExpiresAt(res.data.expires_at || null);
+    } catch {
+      // silently ignore — don't expose errors on this public endpoint
+    } finally {
+      setCheckingStatus(false);
+    }
   };
 
-  const handleVerifyUser = async (e) => {
+  // Reset status badge when username changes
+  const handleUsernameChange = (e) => {
+    setUsername(e.target.value);
+    setRequestStatus(null);
+    setExpiresAt(null);
+  };
+
+  // ── Submit request ─────────────────────────────────────────────────────────
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!formData.email && !formData.username) {
-      toast.error('Please enter email or username');
-      return;
+
+    if (!username.trim()) {
+      return toast.error('Please enter your username');
+    }
+    if (newPassword.length < 6) {
+      return toast.error('New password must be at least 6 characters');
+    }
+    if (newPassword !== confirmPwd) {
+      return toast.error('Passwords do not match');
     }
 
     setLoading(true);
-
     try {
-      // Verify user exists
-      const response = await authAPI.verifyUserForReset({
-        email: formData.email,
-        username: formData.username
-      });
-
-      if (response.data.success) {
-        setVerifiedUser(response.data.user);
-        setStep(2);
-        toast.success('User verified! Please enter your new password');
-      }
+      await passwordResetAPI.submitRequest({ username: username.trim(), newPassword });
+      setSubmitted(true);
+      setRequestStatus('PENDING');
     } catch (error) {
-      console.error('Verification error:', error);
-      toast.error(error.response?.data?.message || 'User not found');
+      const code = error.response?.data?.code;
+      const message = error.response?.data?.message;
+      if (code === 'PENDING_REQUEST_EXISTS') {
+        setRequestStatus('PENDING');
+        toast.error('You already have a pending request. Please wait for admin approval.');
+      } else if (code === 'ACCOUNT_DISABLED') {
+        setRequestStatus('DISABLED');
+      } else if (code === 'ACCOUNT_PENDING') {
+        setRequestStatus('ACCOUNT_PENDING');
+      } else {
+        toast.error(message || 'Failed to submit request. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const handleResetPassword = async (e) => {
-    e.preventDefault();
+  // ── Status banner component ────────────────────────────────────────────────
+  const StatusBanner = () => {
+    if (!requestStatus || requestStatus === 'NONE') return null;
 
-    // Validation
-    if (formData.newPassword !== formData.confirmPassword) {
-      toast.error('Passwords do not match');
-      return;
-    }
+    const configs = {
+      DISABLED: {
+        icon: <XCircle className="w-5 h-5 text-red-600 flex-shrink-0" />,
+        bg:   'bg-red-50 border-red-200',
+        text: 'text-red-800',
+        title: 'Account Disabled',
+        message: 'Your account has been disabled. Please contact your administrator to reactivate it. Resetting your password will not restore access.',
+      },
+      ACCOUNT_PENDING: {
+        icon: <Clock className="w-5 h-5 text-yellow-600 flex-shrink-0" />,
+        bg:   'bg-yellow-50 border-yellow-200',
+        text: 'text-yellow-800',
+        title: 'Account Pending Approval',
+        message: 'Your account is still awaiting approval from an administrator. You cannot reset your password until your account is activated.',
+      },
+      PENDING: {
+        icon: <Clock className="w-5 h-5 text-yellow-600 flex-shrink-0" />,
+        bg:   'bg-yellow-50 border-yellow-200',
+        text: 'text-yellow-800',
+        title: 'Request Pending',
+        message: `Your password reset request is waiting for Super Admin approval. ${expiresAt ? formatTimeLeft(expiresAt) : ''}`,
+      },
+      APPROVED: {
+        icon: <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />,
+        bg:   'bg-green-50 border-green-200',
+        text: 'text-green-800',
+        title: 'Request Approved',
+        message: 'Your password has been reset. Please go back to login and sign in with your new password.',
+      },
+      REJECTED: {
+        icon: <XCircle className="w-5 h-5 text-red-600 flex-shrink-0" />,
+        bg:   'bg-red-50 border-red-200',
+        text: 'text-red-800',
+        title: 'Request Rejected',
+        message: 'Your reset request was rejected by the administrator. You may submit a new request below, or contact your admin directly.',
+      },
+      EXPIRED: {
+        icon: <AlertCircle className="w-5 h-5 text-gray-500 flex-shrink-0" />,
+        bg:   'bg-gray-50 border-gray-200',
+        text: 'text-gray-700',
+        title: 'Request Expired',
+        message: 'Your previous request expired without being actioned. You may submit a new request below.',
+      },
+    };
 
-    if (formData.newPassword.length < 6) {
-      toast.error('Password must be at least 6 characters');
-      return;
-    }
+    const cfg = configs[requestStatus];
+    if (!cfg) return null;
 
-    setLoading(true);
-
-    try {
-      const response = await authAPI.resetPassword({
-        userId: verifiedUser.id,
-        newPassword: formData.newPassword
-      });
-
-      if (response.data.success) {
-        toast.success('Password reset successful! Redirecting to login...');
-        setTimeout(() => {
-          navigate('/login');
-        }, 2000);
-      }
-    } catch (error) {
-      console.error('Reset password error:', error);
-      toast.error(error.response?.data?.message || 'Password reset failed');
-    } finally {
-      setLoading(false);
-    }
+    return (
+      <div className={`mb-5 p-4 rounded-lg border ${cfg.bg} flex items-start gap-3`}>
+        {cfg.icon}
+        <div>
+          <p className={`text-sm font-semibold ${cfg.text}`}>{cfg.title}</p>
+          <p className={`text-sm mt-0.5 ${cfg.text}`}>{cfg.message}</p>
+        </div>
+      </div>
+    );
   };
+
+  // If APPROVED — just show success, no form needed
+  const showForm = !['APPROVED', 'PENDING', 'DISABLED', 'ACCOUNT_PENDING'].includes(requestStatus);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100 py-12 px-4">
       <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md">
+
         {/* Header */}
         <div className="text-center mb-8">
           <div className="flex items-center justify-center mb-4">
@@ -101,79 +167,42 @@ const ResetPassword = () => {
               <KeyRound className="w-8 h-8 text-white" />
             </div>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">Reset Password</h1>
-          <p className="text-gray-600 mt-2">
-            {step === 1 ? 'Verify your account' : 'Create a new password'}
+          <h1 className="text-3xl font-bold text-gray-900">Forgot Password</h1>
+          <p className="text-gray-600 mt-2 text-sm">
+            Submit a reset request — your Super Admin will approve it.
           </p>
         </div>
 
-        {/* Step 1: Verify User */}
-        {step === 1 && (
-          <form onSubmit={handleVerifyUser} className="space-y-4">
-            <div className="bg-blue-50 rounded-lg p-4 mb-4">
-              <p className="text-sm text-blue-800">
-                Enter your email or username to verify your account
-              </p>
-            </div>
+        {/* Status banner */}
+        <StatusBanner />
 
-            {/* Email */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Email
-              </label>
-              <input
-                type="email"
-                name="email"
-                value={formData.email}
-                onChange={handleChange}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                placeholder="your.email@example.com"
-              />
-            </div>
+        {/* Form — hidden if PENDING or APPROVED */}
+        {showForm && (
+          <form onSubmit={handleSubmit} className="space-y-5">
 
-            <div className="text-center text-sm text-gray-500">OR</div>
+            {/* Info box */}
+            <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-800">
+              Enter your username and desired new password. Your request will be sent to the Super Admin for approval.
+              Requests expire after 12 hours.
+            </div>
 
             {/* Username */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Username
+                Username <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
-                name="username"
-                value={formData.username}
-                onChange={handleChange}
+                value={username}
+                onChange={handleUsernameChange}
+                onBlur={() => checkStatus(username)}
+                required
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 placeholder="Your username"
               />
-            </div>
-
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-primary-600 text-white py-3 rounded-lg font-medium hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-6"
-            >
-              {loading ? (
-                <div className="flex items-center justify-center">
-                  <div className="spinner w-5 h-5 border-2 mr-2"></div>
-                  Verifying...
-                </div>
-              ) : (
-                'Verify Account'
+              {checkingStatus && (
+                <p className="text-xs text-gray-400 mt-1">Checking status…</p>
               )}
-            </button>
-          </form>
-        )}
-
-        {/* Step 2: Reset Password */}
-        {step === 2 && (
-          <form onSubmit={handleResetPassword} className="space-y-4">
-            {/* User Info */}
-            <div className="bg-green-50 rounded-lg p-4 mb-4">
-              <p className="text-sm text-green-800">
-                <strong>Account:</strong> {verifiedUser?.full_name} ({verifiedUser?.username})
-              </p>
             </div>
 
             {/* New Password */}
@@ -183,25 +212,20 @@ const ResetPassword = () => {
               </label>
               <div className="relative">
                 <input
-                  type={showNewPassword ? 'text' : 'password'}
-                  name="newPassword"
-                  value={formData.newPassword}
-                  onChange={handleChange}
+                  type={showPwd ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
                   required
                   minLength={6}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 pr-11 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   placeholder="At least 6 characters"
                 />
                 <button
                   type="button"
-                  onClick={() => setShowNewPassword(!showNewPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  onClick={() => setShowPwd(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
                 >
-                  {showNewPassword ? (
-                    <EyeOff className="w-5 h-5" />
-                  ) : (
-                    <Eye className="w-5 h-5" />
-                  )}
+                  {showPwd ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
             </div>
@@ -213,61 +237,45 @@ const ResetPassword = () => {
               </label>
               <div className="relative">
                 <input
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  name="confirmPassword"
-                  value={formData.confirmPassword}
-                  onChange={handleChange}
+                  type={showConfirm ? 'text' : 'password'}
+                  value={confirmPwd}
+                  onChange={e => setConfirmPwd(e.target.value)}
                   required
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 pr-11 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   placeholder="Re-enter new password"
                 />
                 <button
                   type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  onClick={() => setShowConfirm(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
                 >
-                  {showConfirmPassword ? (
-                    <EyeOff className="w-5 h-5" />
-                  ) : (
-                    <Eye className="w-5 h-5" />
-                  )}
+                  {showConfirm ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
+              {confirmPwd && newPassword !== confirmPwd && (
+                <p className="text-xs text-red-500 mt-1">Passwords do not match</p>
+              )}
             </div>
 
-            {/* Submit Button */}
-            <div className="flex space-x-3 mt-6">
-              <button
-                type="button"
-                onClick={() => {
-                  setStep(1);
-                  setVerifiedUser(null);
-                  setFormData({ ...formData, newPassword: '', confirmPassword: '' });
-                }}
-                className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg font-medium hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
-              >
-                <ArrowLeft className="w-5 h-5 inline mr-2" />
-                Back
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex-1 bg-primary-600 text-white py-3 rounded-lg font-medium hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? (
-                  <div className="flex items-center justify-center">
-                    <div className="spinner w-5 h-5 border-2 mr-2"></div>
-                    Resetting...
-                  </div>
-                ) : (
-                  'Reset Password'
-                )}
-              </button>
-            </div>
+            {/* Submit */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-primary-600 text-white py-3 rounded-lg font-medium hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? (
+                <div className="flex items-center justify-center gap-2">
+                  <div className="spinner w-5 h-5 border-2" />
+                  Submitting…
+                </div>
+              ) : (
+                'Submit Reset Request'
+              )}
+            </button>
           </form>
         )}
 
-        {/* Back to Login Link */}
+        {/* Back to login */}
         <div className="mt-6 text-center">
           <Link
             to="/login"

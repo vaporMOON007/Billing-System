@@ -47,8 +47,20 @@ export const authAPI = {
   getProfile: () => api.get('/auth/profile'),
   changePassword: (data) => api.post('/auth/change-password', data),
   register: (data) => api.post('/auth/register', data),
-  verifyUserForReset: (data) => api.post('/auth/verify-user', data),
-  resetPassword: (data) => api.post('/auth/reset-password', data),
+};
+
+// ============================================================================
+// PASSWORD RESET ENDPOINTS
+// ============================================================================
+export const passwordResetAPI = {
+  // Public (no auth)
+  submitRequest:    (data)     => api.post('/password-reset/request', data),
+  getStatus:        (username) => api.get('/password-reset/status', { params: { username } }),
+  // SUPERADMIN only
+  getPendingRequests: ()       => api.get('/password-reset/pending'),
+  getPendingCount:    ()       => api.get('/password-reset/pending-count'),
+  approveRequest:   (id)       => api.put(`/password-reset/${id}/approve`),
+  rejectRequest:    (id)       => api.put(`/password-reset/${id}/reject`),
 };
 
 // ============================================================================

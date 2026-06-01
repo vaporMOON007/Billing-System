@@ -37,15 +37,15 @@ router.get('/profile', auth, authController.getProfile);
 router.post('/change-password', auth, authController.changePassword);
 
 // User management (CA + SUPERADMIN)
-router.get('/users', auth, authorize('CA'), authController.getAllUsers);
-router.put('/users/:id', auth, authorize('CA'), authController.updateUser);
-router.put('/users/:id/reset-password', auth, authorize('CA'), authController.adminResetPassword);
-
-// Pending approval management (SUPERADMIN only)
-// Note: these specific routes must come BEFORE /:id routes to avoid conflicts
-router.get('/users/pending', auth, authorize('SUPERADMIN'), authController.getPendingUsers);
-router.get('/users/pending-count', auth, authorize('SUPERADMIN'), authController.getPendingCount);
-router.put('/users/:id/approve', auth, authorize('SUPERADMIN'), authController.approveUser);
-router.delete('/users/:id/reject', auth, authorize('SUPERADMIN'), authController.rejectUser);
+// IMPORTANT: Specific routes (/pending, /pending-count, /:id/approve, /:id/reset-password)
+// MUST be registered BEFORE the general /:id route — Express matches in order and /:id
+// would shadow any sub-path registered after it.
+router.get('/users/pending',          auth, authorize('SUPERADMIN'), authController.getPendingUsers);
+router.get('/users/pending-count',    auth, authorize('SUPERADMIN'), authController.getPendingCount);
+router.get('/users',                  auth, authorize('CA'),         authController.getAllUsers);
+router.put('/users/:id/reset-password', auth, authorize('CA'),       authController.adminResetPassword);
+router.put('/users/:id/approve',      auth, authorize('SUPERADMIN'), authController.approveUser);
+router.delete('/users/:id/reject',    auth, authorize('SUPERADMIN'), authController.rejectUser);
+router.put('/users/:id',              auth, authorize('CA'),         authController.updateUser);
 
 module.exports = router;

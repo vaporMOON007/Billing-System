@@ -1,7 +1,6 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { query } = require('../config/database');
-const crypto = require('crypto');
 const { logActivity } = require('./activityLogController');
 
 // @desc    Login user
@@ -51,6 +50,12 @@ exports.login = async (req, res) => {
         code: 'PENDING_APPROVAL'
       });
     }
+
+    // Auto-cancel any pending password reset request — user clearly remembers their password
+    await query(
+      "DELETE FROM password_reset_requests WHERE user_id = $1 AND status = 'PENDING'",
+      [user.id]
+    );
 
     // Generate token
     const token = jwt.sign(
@@ -232,19 +237,14 @@ exports.register = async (req, res) => {
       metadata: { new_user_id: user.id, username: user.username, role: user.role, is_approved: isAdminCreate },
     });
 
-    // If admin is creating the user, return token so they can log in immediately
+    // If admin is creating the user, return user only — no token.
+    // Returning a token would give the admin a credential to impersonate the new user.
     if (isAdminCreate) {
-      const token = jwt.sign(
-        { id: user.id, username: user.username, role: user.role },
-        process.env.JWT_SECRET,
-        { expiresIn: '7d' }
-      );
       return res.status(201).json({
         success: true,
         message: 'User created successfully',
         data: {
-          user: { id: user.id, username: user.username, email: user.email, full_name: user.full_name, phone: user.phone, role: user.role },
-          token
+          user: { id: user.id, username: user.username, email: user.email, full_name: user.full_name, phone: user.phone, role: user.role }
         }
       });
     }
@@ -300,6 +300,38 @@ exports.updateUser = async (req, res) => {
 
     if (parseInt(id) === req.user.id && is_active === false) {
       return res.status(400).json({ success: false, message: 'You cannot deactivate your own account.' });
+    }
+
+    // Guard: demoting a SUPERADMIN — ensure at least 2 active SUPERADMINs remain
+    if (role && role !== 'SUPERADMIN') {
+      const targetResult = await query('SELECT role FROM users WHERE id = $1', [id]);
+      if (targetResult.rows.length > 0 && targetResult.rows[0].role === 'SUPERADMIN') {
+        const countResult = await query(
+          "SELECT COUNT(*) AS count FROM users WHERE role = 'SUPERADMIN' AND is_active = true"
+        );
+        if (parseInt(countResult.rows[0].count) <= 2) {
+          return res.status(400).json({
+            success: false,
+            message: 'Cannot demote this Super Admin — the system requires a minimum of 2 active Super Admin accounts.'
+          });
+        }
+      }
+    }
+
+    // Guard: deactivating a SUPERADMIN — ensure at least 2 active SUPERADMINs remain
+    if (is_active === false) {
+      const targetResult = await query('SELECT role FROM users WHERE id = $1', [id]);
+      if (targetResult.rows.length > 0 && targetResult.rows[0].role === 'SUPERADMIN') {
+        const countResult = await query(
+          "SELECT COUNT(*) AS count FROM users WHERE role = 'SUPERADMIN' AND is_active = true"
+        );
+        if (parseInt(countResult.rows[0].count) <= 2) {
+          return res.status(400).json({
+            success: false,
+            message: 'Cannot deactivate this Super Admin — the system requires a minimum of 2 active Super Admin accounts.'
+          });
+        }
+      }
     }
 
     const result = await query(

@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import './styles/animations.css';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './components/auth/Login';

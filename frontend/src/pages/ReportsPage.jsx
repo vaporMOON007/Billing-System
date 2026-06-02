@@ -155,7 +155,7 @@ export default function ReportsPage() {
         {/* Only Finalized toggle */}
         <button
           type="button"
-          onClick={() => setOnlyFinalized(f => !f)}
+          onClick={() => { setOnlyFinalized(f => !f); setTimeout(load, 0); }}
           className={`flex items-center gap-2.5 px-4 py-2 rounded-lg border-2 font-semibold text-sm transition-all select-none ${
             onlyFinalized
               ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'

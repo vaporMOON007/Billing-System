@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileText, TrendingUp, IndianRupee, Clock, Plus } from 'lucide-react';
-import { formatCurrency, getFinancialYear, getYearOptions } from '../utils/helpers';
+import { formatCurrency, getYearOptions } from '../utils/helpers';
 import toast from 'react-hot-toast';
 import api from '../services/api';
 import { exportBillsToExcel } from '../utils/exportUtils';

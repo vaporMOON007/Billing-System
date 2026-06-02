@@ -31,6 +31,8 @@ A billing system for a CA (Chartered Accountant) firm. Core entities:
 - **Write-offs** (`bill_writeoffs`): Audit trail of write-off amounts applied to partially paid finalized bills. SUPERADMIN only.
 - **Merges** (`bill_merges`): Multiple bills can be merged into one. Source bills become `ABSORBED`.
 - **Bank Accounts** (`header_bank_details`): 1:many per company. Each bill stores which account was used via `bills.bank_account_id`. Each account has `nick_name` and `is_primary` flag.
+- **Edit Locks** (`bills.lock_held_by`, `bills.lock_expires_at`): DB-backed edit locks on the `bills` table (migration 009). Prevents two users editing the same bill simultaneously. Survives server restarts.
+- **Password Reset Requests** (`password_reset_requests`): Table for CA/EMPLOYEE self-service password reset flow. User submits request with desired new password (bcrypt hashed), SUPERADMIN approves/rejects. Expires after 12 hours.
 
 ---
 
@@ -62,82 +64,36 @@ A billing system for a CA (Chartered Accountant) firm. Core entities:
 
 | File | Purpose | Local (`Billing`) | Prod (`Billing`) |
 |---|---|---|---|
-| `001_unique_bill_prefix.sql` | Unique index on `UPPER(bill_prefix)` | ❌ Not yet — run AFTER data fixes | ❌ Not yet |
-| `002a_migrate_writeoff_data.sql` | Migrate write-off data to `bill_writeoffs` table | ✅ Already in prod backup | ✅ Done |
-| `002_bill_writeoffs_table.sql` | Create `bill_writeoffs` table | ✅ Already in prod backup | ✅ Done |
+| `001_unique_bill_prefix.sql` | Unique index on `UPPER(bill_prefix)` | ✅ Done | ❌ Not yet |
+| `002a_migrate_writeoff_data.sql` | Migrate write-off data to `bill_writeoffs` table | ✅ Done | ✅ Done |
+| `002_bill_writeoffs_table.sql` | Create `bill_writeoffs` table | ✅ Done | ✅ Done |
 | `003_fix_delete_trigger.sql` | Fix broken delete trigger (adds `last_payment_date`) | ✅ Done | ❌ Not yet |
 | `004_finalize_zero_value_guard.sql` | CHECK constraint: finalized bills must have value > 0 | ✅ Done | ❌ Not yet |
 | `005_schema_cleanup.sql` | Drop duplicate trigger + dead `bill_number_sequence` table | ✅ Done | ❌ Not yet |
-| `006_multi_bank_accounts.sql` | Multi-bank support — **UPDATED** (see note below) | ✅ Done | ❌ Not yet |
+| `006_multi_bank_accounts.sql` | Multi-bank support | ✅ Done | ❌ Not yet |
+| `007_users_username_not_null.sql` | Enforce `username NOT NULL` on users table | ✅ Done | ❌ Not yet |
+| `008_password_reset_requests.sql` | Create `password_reset_requests` table | ✅ Done | ❌ Not yet |
+| `009_bill_edit_locks.sql` | Add `lock_held_by` + `lock_expires_at` to `bills` | ✅ Done | ❌ Not yet |
+| `fix_001_company8_prefix.sql` | Fix Company 8 prefix `CA.`/`CA ` → `CAR` | ✅ Done | ❌ Not yet |
+| `fix_002_merge_company3_into_4.sql` | Merge duplicate URJA COMPUTERS (ID 3) into ID 4 | ✅ Done | ❌ Not yet |
+| `fix_003_merge_company9_into_1.sql` | Merge duplicate MANOJ S DISA (ID 9) into ID 1 | ✅ Done | ❌ Not yet |
 
-### Migration 006 — Important Update
-Migration 006 was updated during this session to fix two issues before running on prod:
-1. **Added Step A0**: Drops `bill_payments_received_in_account_id_fkey` before dropping the UNIQUE constraint on `header_bank_details.header_id` (PostgreSQL blocks the drop otherwise)
-2. **Added Step H0**: Remaps `bill_payments.received_in_account_id` values from `header_id` values → actual `header_bank_details.id` values before re-adding the FK
-3. **Added Step H**: Re-adds the FK correctly pointing to `header_bank_details(id)` instead of `header_bank_details(header_id)`
+### Migration 006 — Important Notes
+1. **Step A0**: Drops `bill_payments_received_in_account_id_fkey` before dropping UNIQUE constraint on `header_bank_details.header_id`
+2. **Step H0**: Remaps `bill_payments.received_in_account_id` from `header_id` values → actual `header_bank_details.id` values
+3. **Step H**: Re-adds FK correctly pointing to `header_bank_details(id)` instead of `header_bank_details(header_id)`
 
 ---
 
-## Data Fix Scripts (NEW — created this session)
+## Company Master — Current State (Local — after all fixes)
 
-These scripts are in `migrations/` folder. They must be run on local first, verified, then run on prod in the same order.
-
-| File | Purpose | Local (`Billing`) | Prod (`Billing`) |
+| ID | Company Name | Prefix | Status |
 |---|---|---|---|
-| `fix_001_company8_prefix.sql` | Fix Company 8 prefix `CA.`/`CA ` → `CAR`, fix bill number `CA./2627/001` → `CAR/2627/001` | ❌ Not yet run | ❌ Not yet |
-| `fix_002_merge_company3_into_4.sql` | Merge duplicate URJA COMPUTERS (ID 3) into correct company (ID 4) | ❌ Not yet run | ❌ Not yet |
-| `fix_003_merge_company9_into_1.sql` | Merge duplicate MANOJ S DISA (ID 9) into correct company (ID 1) | ❌ Not yet run | ❌ Not yet |
+| 1 | MANOJ S DISA AND CO | MSD | ✅ Has 2 bank accounts (HDFC primary + DHULE VIKAS secondary) |
+| 4 | URJA COMPUTERS | URJ | ✅ Clean — ID 3 merged in |
+| 8 | CA RISHIKESH N. SANGTANI | CAR | ✅ Prefix fixed |
 
-**Each script has:**
-- Preview SELECTs at top (show what will change before touching data)
-- BEGIN/changes/COMMIT transaction block
-- Verification SELECTs at bottom
-
-**Run order**: fix_001 → fix_002 → fix_003 → migration 001
-
----
-
-## Company Master — Current State (Prod)
-
-| ID | Company Name | Prefix | Status | Notes |
-|---|---|---|---|---|
-| 1 | MANOJ S DISA AND CO | MSD | ✅ Keep | Primary/correct |
-| 3 | URJA COMPUTERS | URJ | 🔴 Delete | Duplicate — merge into ID 4 (fix_002) |
-| 4 | URJA COMPUTERS | URJ | ✅ Keep | Primary/correct |
-| 8 | CA RISHIKESH N. SANGTANI | CA. / CA  | 🟠 Fix prefix | Change to `CAR` (fix_001) |
-| 9 | MANOJ S DISA AND CO | MAN | 🔴 Delete | Duplicate — merge into ID 1 (fix_003) |
-
----
-
-## Bank Accounts — Current State (Prod, after migration 006)
-
-| hbd.id | header_id (Company) | Bank | Account No | is_primary | Action |
-|---|---|---|---|---|---|
-| 1 | 1 (MSD) | HDFC | 50200002663828 | true | ✅ Keep |
-| 4 | 3 (URJ duplicate) | HDFC | 06371930006766 | true | 🔴 Delete (fix_002 — same account as hbd.id=5) |
-| 5 | 4 (URJ correct) | HDFC | 06371930006766 | true | ✅ Keep |
-| 10 | 8 (CAR) | Kotak | 0145314192 | true | ✅ Keep |
-| 11 | 9 (MAN duplicate) | Dhule Vikas Sahakari | 01021001652 | true | 🟠 Move to Company 1 as second account (fix_003) |
-
----
-
-## Known Issues — Current Status
-
-| # | Issue | Severity | Status |
-|---|---|---|---|
-| 1 | Duplicate `bill_prefix` URJ (companies ID 3 & 4) | 🔴 High | ⏳ fix_002 script ready — not run yet |
-| 2 | Migration 001 — unique index on `bill_prefix` not on prod | 🔴 High | ❌ Blocked until fix_001/002/003 done |
-| 3 | Delete DRAFT bill failing on prod | 🔴 High | ❌ Need actual error message from server |
-| 4 | `deleteHeader` missing FK checks | 🟠 Medium | ✅ Fixed in code |
-| 5 | Broken delete trigger on `bill_payments` on prod | 🟠 Medium | ❌ Migration 003 not run on prod yet |
-| 6 | Zero-value finalize guard not on prod | 🟠 Medium | ❌ Migration 004 not run on prod yet |
-| 7 | Duplicate trigger + dead table on prod | 🟠 Medium | ❌ Migration 005 not run on prod yet |
-| 8 | Orphan `rate_name` column in `gst_rates_master` on prod | 🟡 Low | ❌ No functional impact |
-| 9 | Any user can delete a FINALIZED bill — no status guard | 🟡 Low | ❌ Pending |
-| 10 | Old write-off columns on `bills` table on prod | 🟡 Low | ❌ Verify then drop |
-| 11 | One `WRITE_OFF_BILL` activity log row has lowercase `entity_type` | 🟡 Low | ❌ One SQL UPDATE needed |
-| 12 | Company 8 prefix `CA.`/`CA ` needs to be `CAR` | 🟠 Medium | ⏳ fix_001 script ready — not run yet |
-| 13 | Company 9 (MAN) duplicate of Company 1 (MSD) | 🔴 High | ⏳ fix_003 script ready — not run yet |
+IDs 3 and 9 were deleted after data fix scripts ran locally.
 
 ---
 
@@ -151,49 +107,76 @@ These scripts are in `migrations/` folder. They must be run on local first, veri
 
 ---
 
-## Multi-Bank Account Feature — COMPLETED IN CODE
+## Features Completed This Session (02 Jun 2026)
 
-### What Was Built
-Full multi-bank support — DB migration, backend, and frontend all coded.
+### Password Reset Flow (new feature)
+- CA/EMPLOYEE submits a reset request with their desired new password (bcrypt-hashed at submission)
+- SUPERADMIN sees pending requests in User Management → Password Resets tab
+- Navbar badge shows count of pending reset requests (polls every 2 min)
+- SUPERADMIN approves → password updated. Rejects → user re-submits
+- Requests expire after 12 hours if not actioned
+- On successful login with old password → pending request auto-cancelled
+- Disabled/unapproved accounts blocked from submitting requests
+- SUPERADMIN accounts cannot use this flow (they use direct DB update for recovery)
+- `ResetPassword.jsx` fully rewritten, `ForgotPassword` link on login page
 
-### DB Schema Changes (migration 006)
-- `header_bank_details`: UNIQUE constraint on `header_id` dropped (now 1:many). New columns: `nick_name VARCHAR(100)`, `is_primary BOOLEAN NOT NULL DEFAULT false`.
-- `bills`: New column `bank_account_id INTEGER NOT NULL REFERENCES header_bank_details(id) ON DELETE RESTRICT`.
-- `bill_payments.received_in_account_id`: FK now references `header_bank_details(id)` (was `header_bank_details(header_id)`).
-- All existing bills backfilled with their company's primary account on migration run.
+### SUPERADMIN Guard (min 2 active SUPERADMINs)
+- Cannot demote or deactivate a SUPERADMIN if it would leave fewer than 2 active SUPERADMINs
+- Enforced in `authController.js` `updateUser`
 
-### Backend Changes Made
+### Bill Delete Guards
+- `DELETE /api/bills/:id` now restricted to CA+ (no EMPLOYEE)
+- FINALIZED/ABSORBED bills — SUPERADMIN only
+- Any bill with payments recorded — blocked entirely (must remove payments first)
+- Delete confirmation modal shows bill number with Copy button; DRAFT bills require typing "DELETE"
 
-**`masterController.js`**:
-- `updateHeaderDetails`: Removed broken `ON CONFLICT (header_id) DO UPDATE` bank upsert
-- `deleteHeader`: Fixed to check all 3 FKs (`header_id`, `override_header_id`, `bank_account_id` via join)
-- 4 new controller functions: `getBankAccountsByHeader`, `addBankAccount`, `updateBankAccount`, `deleteBankAccount`
+### DB-Backed Edit Locks (migration 009)
+- Locks moved from in-memory Map to `bills.lock_held_by` + `bills.lock_expires_at` columns
+- Survives server restarts
+- Lazy cleanup: expired locks overwritten on acquire
+- `useEditLock.js` rewritten using `useEffect` + `useRef` to fix stale closure bug
 
-**`masterRoutes.js`**:
-- Added `PUT /headers/:id` alias for backwards compat
-- Added 4 bank account routes: `GET/POST /headers/:id/bank-accounts`, `PUT/DELETE /headers/:id/bank-accounts/:bankId`
+### Excel Export Fix
+- `exportBills` in `reportController.js` fixed — was querying non-existent `b.writeoff_amount`, `b.writeoff_date`, `b.writeoff_notes` columns on `bills` table (moved to `bill_writeoffs` in migration 002)
+- Now uses `LATERAL JOIN` to `bill_writeoffs` with correct column `writeoff_amount`
+- Export logic deduplicated into `frontend/src/utils/exportUtils.js` — used by both `Dashboard.jsx` and `ReportsPage.jsx`
 
-**`billController.js`**:
-- `createBill`: Accepts `bank_account_id`, validates it belongs to `header_id`, auto-picks primary if not provided
-- `updateBill`: Accepts `bank_account_id`, validates ownership, DRAFT = any user, FINALIZED = SUPERADMIN only
+### MarkPaymentModal Bank Account Fix
+- Was sending `acc.header_id` (company ID) as `received_in_account_id` — now sends `acc.id` (correct bank account row ID)
+- `getBankAccounts` query now returns `hbd.id`, `nick_name`, `is_primary`
+- Dropdown label improved: shows company name, nick name, last 4 digits, marks primary
 
-**`api.js`**:
-- 4 new `masterAPI` methods: `getBankAccountsByHeader`, `addBankAccount`, `updateBankAccount`, `deleteBankAccount`
-- Fixed typo in `deletePaymentTerm` URL
+### authRoutes Route Ordering Fix
+- `PUT /users/:id/approve` and `PUT /users/:id/reset-password` were registered AFTER `PUT /users/:id` — Express was shadowing them
+- Specific routes now registered before the general `/:id` route
 
-### Frontend Changes Made
+### Payment Delete Audit Logging
+- `deletePayment` now fetches full payment details before deleting and logs `DELETE_PAYMENT` action with amount, mode, date, bill number
 
-**`MastersPage.jsx`**:
-- Company table expandable rows showing bank accounts inline
-- Add/Edit/Delete bank account modals
+### updatePayment Overpay Validation
+- Now checks bill total minus other payments before accepting new `amount_paid`
+- Returns 400 if new amount would exceed remaining balance
 
-**`ServicesFormPage.jsx`**:
-- `bank_account_id` in form state
-- Auto-select if 1 account, popup if multiple
-- Bank account card shown on form
-
-### Fixed — Wrong bank JOIN in query files
-All `LEFT JOIN header_bank_details` queries now join on `hb.id = b.bank_account_id` (was `header_id`). Fixed in `billController.js`, `paymentController.js`, `reportController.js`.
+### Other Bug Fixes
+- `toast` import missing in `App.jsx` — fixed
+- `register` endpoint no longer returns JWT to admin (impersonation risk)
+- `logActivity` called with `userId:` instead of `performedBy:` in clientController bulk ops — fixed
+- `createBill` null guard on `services` array — added before any DB insert
+- `mergeBills` epoch date bug — null due dates now filtered before `Math.max`
+- Raw PostgreSQL error messages stripped from all 500 responses in production (dev-only via `NODE_ENV`)
+- INNER JOIN on `gst_rates_master` changed to LEFT JOIN — services with null GST rate no longer silently dropped from reports
+- GSTIN/PAN regex consolidated: `backend/utils/validators.js` + `frontend/src/utils/helpers.js`
+- Vite scaffold files `App.tsx` and `main.tsx` deleted
+- Dead routes removed: `PATCH /headers/:id/prefix`, `GET /client-ledger`
+- Dead api.js functions removed: `downloadBill`, `addServiceToBill`, `verifyUserForReset`, `resetPassword`
+- Dead controller function `generateClientLedger` removed from `reportController.js`
+- `getHeaderById` now returns full array of bank accounts (was `rows[0]` only)
+- Company edit form bank fields removed — bank accounts managed via expandable section
+- `ACTION_META` in `AuditLogPage.jsx` updated with missing entries: `APPROVE_USER`, `REJECT_USER`, `DELETE_CLIENT`, `DELETE_PAYMENT`, `APPROVE_PASSWORD_RESET`, `REJECT_PASSWORD_RESET`, `OVERRIDE_EDIT_PAYMENT`
+- `AuthContext.jsx` dead token branch removed from `register()`
+- Duplicate success animation in `ServicesFormPage.jsx` removed (kept `SuccessCheckmark`)
+- `tfoot` column mismatch in `ServicesFormPage.jsx` fixed (was 10 cols vs 9-col thead)
+- `onlyFinalized` toggle in `ReportsPage.jsx` now auto-refreshes data
 
 ---
 
@@ -204,26 +187,50 @@ backend/
   controllers/
     masterController.js
     billController.js
+    authController.js
+    paymentController.js
+    reportController.js
+    passwordResetController.js    ← NEW this session
     activityLogController.js
   routes/
     masterRoutes.js
     billRoutes.js
+    authRoutes.js
+    passwordResetRoutes.js        ← NEW this session
   middleware/
     auth.js
   config/
     database.js
+  utils/
+    validators.js                 ← NEW this session (GSTIN/PAN regex)
 
 frontend/src/
   pages/
     ServicesFormPage.jsx
     MastersPage.jsx
     PrintBillPage.jsx
+    UserManagementPage.jsx        ← Updated: Password Resets tab + badge
+    AuditLogPage.jsx              ← Updated: ACTION_META entries added
+    Dashboard.jsx
+    ReportsPage.jsx
   components/
+    auth/
+      ResetPassword.jsx           ← REWRITTEN this session
+      Login.jsx
+    modals/
+      MarkPaymentModal.jsx        ← Fixed: bank account ID bug
+    layout/
+      Navbar.jsx                  ← Updated: reset request badge
     common/Modal.jsx
-    common/Dropdown.jsx
-    common/SearchableDropdown.jsx
+  hooks/
+    useEditLock.js                ← REWRITTEN this session
   services/
     api.js
+  utils/
+    helpers.js                    ← Updated: GSTIN/PAN regex added
+    exportUtils.js                ← NEW this session (shared Excel export)
+  context/
+    AuthContext.jsx
 
 migrations/
   001_unique_bill_prefix.sql
@@ -232,38 +239,100 @@ migrations/
   003_fix_delete_trigger.sql
   004_finalize_zero_value_guard.sql
   005_schema_cleanup.sql
-  006_multi_bank_accounts.sql        ← UPDATED this session
-  fix_001_company8_prefix.sql        ← NEW this session
-  fix_002_merge_company3_into_4.sql  ← NEW this session
-  fix_003_merge_company9_into_1.sql  ← NEW this session
-  preview_001_company8_prefix.sql    ← NEW (can delete — merged into fix_001)
-  preview_002_merge_company3_into_4.sql ← NEW (can delete — merged into fix_002)
-  preview_003_merge_company9_into_1.sql ← NEW (can delete — merged into fix_003)
+  006_multi_bank_accounts.sql
+  007_users_username_not_null.sql  ← NEW this session
+  008_password_reset_requests.sql  ← NEW this session
+  009_bill_edit_locks.sql          ← NEW this session
+  fix_001_company8_prefix.sql
+  fix_002_merge_company3_into_4.sql
+  fix_003_merge_company9_into_1.sql
 
 CONTEXT_FOR_NEW_CHAT.md  ← this file
-backup_prod.sql           ← prod DB dump (taken this session, May 2026)
+backup_prod.sql           ← prod DB dump (taken May 2026)
 ```
 
 ---
 
-## What Was Done This Session (31 May 2026)
+## Known Remaining Issues
 
-1. Fixed `express-rate-limit` missing on prod server — ran `npm install` in backend
-2. Analysed prod vs local schema differences — found 5 missing migrations + data issues
-3. Created local `Billing` DB by restoring `backup_prod.sql` (exact prod clone)
-4. Ran migrations 003, 004, 005 on local `Billing` DB — all successful
-5. Fixed and ran migration 006 on local `Billing` DB — required 3 additional steps (drop FK, remap data, re-add FK correctly)
-6. Created 3 data fix scripts with preview queries + verification queries
-7. Updated CONTEXT_FOR_NEW_CHAT.md
+| # | Issue | Severity | Status |
+|---|---|---|---|
+| 1 | Delete DRAFT bill failing on prod | 🔴 High | ❌ Need actual error message from prod server |
+| 2 | Old write-off columns on `bills` table on prod | 🟡 Low | ❌ Verify then drop |
+| 3 | One `WRITE_OFF_BILL` activity log row has lowercase `entity_type` | 🟡 Low | ❌ One SQL UPDATE needed |
+| 4 | Orphan `rate_name` column in `gst_rates_master` on prod | 🟡 Low | ❌ No functional impact |
+
+---
 
 ## Next Steps (In Order)
 
-1. Run `fix_001_company8_prefix.sql` on local — verify output
-2. Run `fix_002_merge_company3_into_4.sql` on local — verify output
-3. Run `fix_003_merge_company9_into_1.sql` on local — verify output
-4. Run `001_unique_bill_prefix.sql` on local — should succeed now
-5. Test the app locally against the `Billing` DB — confirm everything works
-6. Apply same steps (003, 004, 005, 006, fix_001, fix_002, fix_003, 001) on prod
-7. Address Issue #3 (delete DRAFT bill failing) — need error message from prod
-8. Address Issue #9 (FINALIZED bill delete guard)
-9. Address infrastructure fixes (JWT_SECRET, CORS_ORIGIN, frontend build, PM2)
+### Step 1 — Take a fresh prod DB backup FIRST
+Before touching prod, always take a backup. Run on prod server:
+```cmd
+pg_dump -U postgres -d "Billing" -F c -f "C:\Users\Administrator\Desktop\Billing-System\backup_prod_before_migrations.sql"
+```
+Keep this backup safe. If anything goes wrong mid-migration you can restore from it.
+
+---
+
+### Step 2 — Copy updated code files to prod server
+Copy everything from local `C:\Users\jatsh\Desktop\Billing-System` to prod `C:\Users\Administrator\Desktop\Billing-System`:
+- `backend/` — all controller, route, utils, middleware files
+- `frontend/src/` — all pages, components, hooks, services, utils files
+- `migrations/` — all migration + fix scripts (007, 008, 009, fix_001, fix_002, fix_003 are new)
+
+Do NOT overwrite:
+- `backend/.env` — prod has its own credentials
+- `frontend/.env` — if it exists on prod
+
+---
+
+### Step 3 — Install backend dependencies on prod
+```cmd
+cd C:\Users\Administrator\Desktop\Billing-System\backend
+npm install
+```
+
+---
+
+### Step 4 — Run all pending migrations on prod IN ORDER
+> **Note:** `002a` and `002` are already on prod (confirmed in the May 2026 backup — skip them).
+> `001` is included below — it must run AFTER the data fix scripts or it will fail due to duplicate prefixes.
+```cmd
+psql -U postgres -d "Billing" -f "C:\Users\Administrator\Desktop\Billing-System\migrations\003_fix_delete_trigger.sql"
+psql -U postgres -d "Billing" -f "C:\Users\Administrator\Desktop\Billing-System\migrations\004_finalize_zero_value_guard.sql"
+psql -U postgres -d "Billing" -f "C:\Users\Administrator\Desktop\Billing-System\migrations\005_schema_cleanup.sql"
+psql -U postgres -d "Billing" -f "C:\Users\Administrator\Desktop\Billing-System\migrations\006_multi_bank_accounts.sql"
+psql -U postgres -d "Billing" -f "C:\Users\Administrator\Desktop\Billing-System\migrations\fix_001_company8_prefix.sql"
+psql -U postgres -d "Billing" -f "C:\Users\Administrator\Desktop\Billing-System\migrations\fix_002_merge_company3_into_4.sql"
+psql -U postgres -d "Billing" -f "C:\Users\Administrator\Desktop\Billing-System\migrations\fix_003_merge_company9_into_1.sql"
+psql -U postgres -d "Billing" -f "C:\Users\Administrator\Desktop\Billing-System\migrations\001_unique_bill_prefix.sql"
+psql -U postgres -d "Billing" -f "C:\Users\Administrator\Desktop\Billing-System\migrations\007_users_username_not_null.sql"
+psql -U postgres -d "Billing" -f "C:\Users\Administrator\Desktop\Billing-System\migrations\008_password_reset_requests.sql"
+psql -U postgres -d "Billing" -f "C:\Users\Administrator\Desktop\Billing-System\migrations\009_bill_edit_locks.sql"
+```
+After each migration, check the output for errors before running the next one.
+
+---
+
+### Step 5 — Restart the backend
+```cmd
+cd C:\Users\Administrator\Desktop\Billing-System\backend
+node server.js
+```
+Or restart via Windows Task Scheduler / whatever process is running it.
+
+---
+
+### Step 6 — Smoke test on prod
+- Log in as SUPERADMIN
+- Create a DRAFT bill, finalize it, record a payment
+- Check bank account dropdown in Mark Payment modal shows correct accounts
+- Check User Management → Password Resets tab loads
+- Check Audit Log shows readable action labels
+
+---
+
+### Remaining Issues (after prod deployment)
+1. **Delete DRAFT bill failing on prod** — need actual error message from prod server logs
+2. **Infrastructure** — JWT_SECRET, CORS_ORIGIN, npm run build instead of dev, PM2

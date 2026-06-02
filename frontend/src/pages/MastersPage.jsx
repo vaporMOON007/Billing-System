@@ -359,11 +359,8 @@ const MastersPage = () => {
             pan: formData.get('pan'),
             bill_prefix: formData.get('bill_prefix'),
             upi_id: formData.get('upi_id'),
-            bank_name: formData.get('bank_name'),
-            account_holder_name: formData.get('account_holder_name'),
-            account_number: formData.get('account_number'),
-            ifsc_code: formData.get('ifsc_code'),
-            branch_name: formData.get('branch_name'),
+            // Bank accounts are managed separately via the bank accounts section below the table
+            // — do not submit bank fields here, they are ignored by the backend since migration 006
           };
           if (editingItem) {
             await masterAPI.updateHeader(editingItem.id, companyData);
@@ -910,44 +907,10 @@ const MastersPage = () => {
                 </div>
               </div>
 
-              {/* Bank Details Section */}
+              {/* Bank accounts are managed via the expandable bank accounts section in the company table.
+                  They are no longer edited here since migration 006 introduced multi-bank support. */}
               <div className="pt-4 border-t">
-                <h4 className="text-sm font-semibold text-gray-700 mb-3">Bank Details <span className="text-gray-400 text-xs font-normal">(optional)</span></h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Bank Name</label>
-                    <input type="text" name="bank_name" defaultValue={editingItem?.bank_name}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Account Holder</label>
-                    <input type="text" name="account_holder_name" defaultValue={editingItem?.account_holder_name}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Account Number</label>
-                    <input type="text" name="account_number" defaultValue={editingItem?.account_number}
-                      pattern="[0-9]{9,18}" maxLength={18}
-                      title="Account number must be 9–18 digits"
-                      placeholder="Digits only, 9–18 characters"
-                      onInput={(e) => { e.target.value = e.target.value.replace(/[^0-9]/g, ''); }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">IFSC Code</label>
-                    <input type="text" name="ifsc_code" defaultValue={editingItem?.ifsc_code} maxLength={11}
-                      pattern="[A-Z]{4}0[A-Z0-9]{6}"
-                      title="IFSC format: 4 letters + 0 + 6 alphanumeric (e.g. HDFC0001234)"
-                      placeholder="HDFC0001234"
-                      onInput={(e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Branch Name</label>
-                    <input type="text" name="branch_name" defaultValue={editingItem?.branch_name}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
-                  </div>
-                </div>
+                <p className="text-sm text-gray-500 italic">Bank accounts for this company are managed in the expandable row below the company table.</p>
               </div>
             </>
           )}

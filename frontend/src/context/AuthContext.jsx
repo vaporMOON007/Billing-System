@@ -63,22 +63,14 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await authAPI.register(userData);
 
-      // If pending_approval is true, registration succeeded but no token was issued
+      // Self-registration — account pending SUPERADMIN approval
       if (response.data.pending_approval) {
         return { success: true, pending_approval: true, message: response.data.message };
       }
 
-      // Admin-created user — token provided, log them in automatically
-      if (response.data.data?.token) {
-        const { token, user } = response.data.data;
-        localStorage.setItem('token', token);
-        localStorage.setItem('user', JSON.stringify(user));
-        setToken(token);
-        setUser(user);
-        toast.success('User created successfully!');
-        return { success: true };
-      }
-
+      // Admin-created user — backend intentionally does NOT return a token
+      // (returning a token would let the admin impersonate the new user).
+      // The new user logs in themselves with their own credentials.
       return { success: true };
     } catch (error) {
       const message = error.response?.data?.message || 'Registration failed';

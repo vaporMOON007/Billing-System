@@ -176,7 +176,7 @@ exports.getHeaderById = async (req, res) => {
     }
 
     const bankResult = await query(
-      'SELECT * FROM header_bank_details WHERE header_id = $1',
+      'SELECT * FROM header_bank_details WHERE header_id = $1 ORDER BY is_primary DESC, id ASC',
       [id]
     );
 
@@ -184,7 +184,7 @@ exports.getHeaderById = async (req, res) => {
       success: true,
       data: {
         ...headerResult.rows[0],
-        bank_details: bankResult.rows[0] || null
+        bank_details: bankResult.rows   // all accounts, primary first
       }
     });
   } catch (error) {
@@ -1041,7 +1041,7 @@ exports.deletePaymentTerm = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to delete payment term',
-      error: error.message
+      ...(process.env.NODE_ENV === 'development' && { error: error.message })
     });
   }
 };

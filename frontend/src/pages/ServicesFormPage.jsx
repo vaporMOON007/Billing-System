@@ -776,29 +776,18 @@ const ServicesFormPage = () => {
               </tbody>
               <tfoot className="bg-gray-50 font-semibold">
                 <tr>
-                  <td colSpan="7" className="px-4 py-3 text-right">
-                    Subtotal:
-                  </td>
+                  <td colSpan="7" className="px-4 py-3 text-right">Subtotal:</td>
                   <td className="px-4 py-3 text-right">{formatCurrency(totals.subtotal)}</td>
-                  <td></td>
                   <td></td>
                 </tr>
                 <tr>
-                  <td colSpan="7" className="px-4 py-3 text-right">
-                    GST Total:
-                  </td>
+                  <td colSpan="7" className="px-4 py-3 text-right">GST Total:</td>
                   <td className="px-4 py-3 text-right">{formatCurrency(totals.gstTotal)}</td>
-                  <td></td>
                   <td></td>
                 </tr>
                 <tr className="text-lg">
-                  <td colSpan="7" className="px-4 py-3 text-right">
-                    Total Invoice Value:
-                  </td>
-                  <td className="px-4 py-3 text-right text-primary-600">
-                    {formatCurrency(totals.total)}
-                  </td>
-                  <td></td>
+                  <td colSpan="7" className="px-4 py-3 text-right">Total Invoice Value:</td>
+                  <td className="px-4 py-3 text-right text-primary-600">{formatCurrency(totals.total)}</td>
                   <td></td>
                 </tr>
               </tfoot>
@@ -902,16 +891,7 @@ const ServicesFormPage = () => {
         </form>
       )}
 
-      {/* Success Animation */}
-      {showSuccessAnimation && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
-          <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center animate-bounce">
-            <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-        </div>
-      )}
+      {/* Success Animation — handled by SuccessCheckmark below */}
 
       {/* New Client Modal */}
       <Modal

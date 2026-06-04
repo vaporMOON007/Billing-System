@@ -32,8 +32,8 @@ const Sidebar = () => {
 
   // Order: Dashboard → Reports → Create Bill → Print Bill → Masters → User Management → Audit Log
   const navItems = [
-    { path: '/dashboard',       icon: LayoutDashboard, label: 'Dashboard',       roles: ['CA', 'SUPERADMIN'] },
-    { path: '/reports',         icon: BarChart2,        label: 'Reports',         roles: ['CA', 'SUPERADMIN'] },
+    { path: '/dashboard',       icon: LayoutDashboard, label: 'Dashboard',       roles: ['SUPERADMIN'] },
+    { path: '/reports',         icon: BarChart2,        label: 'Reports',         roles: ['SUPERADMIN'] },
     { path: '/services-form',   icon: FilePlus,         label: 'Create Bill',     roles: ['CA', 'EMPLOYEE', 'SUPERADMIN'] },
     { path: '/print-bill',      icon: Printer,          label: 'Print Bill',      roles: ['CA', 'EMPLOYEE', 'SUPERADMIN'] },
     { path: '/masters',         icon: Settings,         label: 'Masters',         roles: ['CA', 'EMPLOYEE', 'SUPERADMIN'] },

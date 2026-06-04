@@ -886,12 +886,19 @@ exports.deleteBill = async (req, res) => {
       });
     }
 
-    // Trigger function update_bill_payment_status_on_delete is now managed via
-    // migrations/003_fix_delete_trigger.sql — no longer patched on every request.
     await client.query('BEGIN');
 
-    // Delete child records in dependency order to satisfy FK constraints
-    // (edit locks are stored in-memory — no DB table to delete from)
+    // Step 1: Set status to DRAFT before deleting services.
+    // The trigger_update_bill_totals trigger fires after bill_services rows are deleted
+    // and recalculates total_invoice_value = 0. If the bill is still FINALIZED at that
+    // point, migration 004's constraint (chk_finalized_bill_has_value) blocks it.
+    // Setting to DRAFT first bypasses the constraint since it only applies to FINALIZED bills.
+    await client.query(
+      "UPDATE bills SET status = 'DRAFT' WHERE id = $1",
+      [id]
+    );
+
+    // Step 2: Delete child records in dependency order
     await client.query('DELETE FROM bill_payments WHERE bill_id = $1', [id]);
     await client.query('DELETE FROM bill_services WHERE bill_id = $1', [id]);
     await client.query('DELETE FROM bills WHERE id = $1', [id]);

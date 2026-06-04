@@ -21,7 +21,7 @@ router.delete('/services/:serviceId', billController.deleteService);
 // Bill-level operations
 router.get('/:id', billController.getBillById);
 router.put('/:id', billController.updateBill);
-router.put('/:id/finalize', billController.finalizeBill);
+router.put('/:id/finalize', authorize('CA'), billController.finalizeBill);
 router.post('/:id/unmerge', billController.unmergeBill);
 router.delete('/:id', authorize('CA'), billController.deleteBill);
 

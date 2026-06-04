@@ -29,10 +29,16 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Unauthorized - clear token and redirect to login
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
+      // Only auto-redirect if the user was already logged in (has a token).
+      // If there's no token, this is a login attempt failure — let the Login
+      // page handle the error message itself. Redirecting here would silently
+      // swallow the "Invalid credentials" message.
+      const hasToken = !!localStorage.getItem('token');
+      if (hasToken) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }

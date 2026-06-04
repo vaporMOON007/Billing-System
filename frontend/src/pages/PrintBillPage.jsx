@@ -1227,7 +1227,7 @@ const PrintBillPage = () => {
                   <MessageSquare className="w-4 h-4" />
                   <span>Share on WhatsApp</span>
                 </button>
-                {selectedBill.status === 'DRAFT' && (
+                {selectedBill.status === 'DRAFT' && ['CA', 'SUPERADMIN'].includes(user?.role) && (
                   <button
                     onClick={handleFinalizeBill}
                     disabled={finalizingBill}

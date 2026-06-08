@@ -345,8 +345,14 @@ exports.searchClients = async (req, res) => {
 // @access  Private
 exports.exportClients = async (req, res) => {
   try {
+    // Return only the columns the frontend xlsx export actually uses.
+    // SELECT * was leaking internal fields (is_active, created_at, updated_at).
     const result = await query(
-      'SELECT * FROM clients_master ORDER BY client_name ASC'
+      `SELECT id, client_name, contact_person, phone, email,
+              gstin, pan, address_line1, address_line2, city, state, pincode
+       FROM clients_master
+       WHERE is_active = true
+       ORDER BY client_name ASC`
     );
 
     res.json({
@@ -377,71 +383,50 @@ exports.bulkDeleteClients = async (req, res) => {
       });
     }
 
+    // 1 query: fetch all requested clients
+    const clientsResult = await query(
+      'SELECT id, client_name FROM clients_master WHERE id = ANY($1::int[])',
+      [client_ids]
+    );
+    const foundMap = new Map(clientsResult.rows.map(c => [c.id, c.client_name]));
+
+    // 1 query: find which of the requested clients have bills
+    const billedResult = await query(
+      'SELECT DISTINCT client_id FROM bills WHERE client_id = ANY($1::int[])',
+      [client_ids]
+    );
+    const billedIds = new Set(billedResult.rows.map(r => r.client_id));
+
     const deleted = [];
     const skipped = [];
 
     for (const clientId of client_ids) {
-      try {
-        // Fetch client details
-        const clientResult = await query(
-          'SELECT id, client_name FROM clients_master WHERE id = $1',
-          [clientId]
-        );
-
-        if (clientResult.rows.length === 0) {
-          skipped.push({
-            id: clientId,
-            client_name: 'Unknown',
-            reason: 'Client not found'
-          });
-          continue;
-        }
-
-        const client = clientResult.rows[0];
-
-        // Check if client has any bills
-        const billCheck = await query(
-          'SELECT COUNT(*) as bill_count FROM bills WHERE client_id = $1',
-          [clientId]
-        );
-
-        if (parseInt(billCheck.rows[0].bill_count) > 0) {
-          skipped.push({
-            id: client.id,
-            client_name: client.client_name,
-            reason: 'Client has existing bills'
-          });
-          continue;
-        }
-
-        // Delete client
-        await query(
-          'DELETE FROM clients_master WHERE id = $1',
-          [clientId]
-        );
-
-        deleted.push({
-          id: client.id,
-          client_name: client.client_name
-        });
-
-        // Log activity
-        logActivity({
-          performedBy: req.user.id,
-          action: 'DELETE_CLIENT',
-          entityType: 'client',
-          entityId: client.id,
-          description: `Deleted client: ${client.client_name}`,
-          metadata: { client_name: client.client_name }
-        });
-      } catch (error) {
-        console.error(`Error deleting client ${clientId}:`, error);
-        skipped.push({
-          id: clientId,
-          client_name: 'Unknown',
-          reason: error.message
-        });
+      if (!foundMap.has(clientId)) {
+        skipped.push({ id: clientId, client_name: 'Unknown', reason: 'Client not found' });
+        continue;
       }
+      if (billedIds.has(clientId)) {
+        skipped.push({ id: clientId, client_name: foundMap.get(clientId), reason: 'Client has existing bills' });
+        continue;
+      }
+      deleted.push({ id: clientId, client_name: foundMap.get(clientId) });
+    }
+
+    // 1 query: delete all eligible clients at once
+    if (deleted.length > 0) {
+      const deleteIds = deleted.map(c => c.id);
+      await query(
+        'DELETE FROM clients_master WHERE id = ANY($1::int[])',
+        [deleteIds]
+      );
+      logActivity({
+        performedBy: req.user.id,
+        action: 'BULK_DELETE_CLIENTS',
+        entityType: 'client',
+        entityId: null,
+        description: `Bulk deleted ${deleted.length} client(s)`,
+        metadata: { deleted_count: deleted.length, deleted_clients: deleted }
+      });
     }
 
     // Log bulk delete activity

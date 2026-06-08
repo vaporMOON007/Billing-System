@@ -25,12 +25,8 @@ router.put('/:id/finalize', authorize('CA'), billController.finalizeBill);
 router.post('/:id/unmerge', billController.unmergeBill);
 router.delete('/:id', authorize('CA'), billController.deleteBill);
 
-// PDF and Email
-router.get('/:id/pdf', billController.generatePDF);
+// Email
 router.post('/:id/email', billController.sendEmail);
-
-// Per-bill service add
-router.post('/:billId/services', billController.addServiceToBill);
 
 // Edit lock routes
 router.post('/:id/lock', billController.acquireLock);

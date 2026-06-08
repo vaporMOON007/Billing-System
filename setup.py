@@ -19,17 +19,9 @@ def main():
     print("  Billing System — Setup")
     print(DIVIDER)
 
-    # 1. Python packages
-    print("\n[1/3] Installing Python packages ...")
-    result = run(f'"{sys.executable}" -m pip install reportlab==4.2.5')
-    if result != 0:
-        print("      FAILED — check pip is available.")
-        sys.exit(result)
-    print("      Done.")
-
-    # 2. Backend npm packages
+    # 1. Backend npm packages
     backend_path = os.path.join(BASE_DIR, "backend")
-    print("\n[2/3] Installing backend npm packages ...")
+    print("\n[1/2] Installing backend npm packages ...")
     if os.path.isdir(backend_path):
         result = run("npm install", cwd=backend_path)
         if result != 0:
@@ -39,11 +31,11 @@ def main():
     else:
         print("      /backend folder not found — skipping.")
 
-    # 3. Frontend npm packages
+    # 2. Frontend npm packages
     frontend_path = os.path.join(BASE_DIR, "frontend")
-    print("\n[3/3] Installing frontend npm packages ...")
+    print("\n[2/2] Installing frontend npm packages ...")
     if os.path.isdir(frontend_path):
-        result = run("npm install --legacy-peer-deps", cwd=frontend_path)
+        result = run("npm install", cwd=frontend_path)
         if result != 0:
             print("      FAILED — check Node.js / npm is installed.")
             sys.exit(result)
@@ -53,6 +45,11 @@ def main():
 
     print("\n" + DIVIDER)
     print("  Setup complete!")
+    print("")
+    print("  1. Create a PostgreSQL database")
+    print("  2. Run schema.sql in pgAdmin")
+    print("  3. Create backend/.env (see README.md)")
+    print("")
     print("  Start backend : cd backend  && npm run dev")
     print("  Start frontend: cd frontend && npm run dev")
     print(DIVIDER + "\n")

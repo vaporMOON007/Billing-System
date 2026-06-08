@@ -39,6 +39,15 @@ const auth = async (req, res, next) => {
       });
     }
 
+    // Check if user is approved — blocks API access instantly when revoked,
+    // regardless of whether the JWT is still valid
+    if (!user.is_approved) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account is pending administrator approval.'
+      });
+    }
+
     // Attach user to request object
     req.user = user;
     next();

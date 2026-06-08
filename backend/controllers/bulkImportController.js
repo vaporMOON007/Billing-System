@@ -203,7 +203,7 @@ exports.bulkImportClients = async (req, res) => {
     // Log bulk import activity if any clients were created
     if (created.length > 0) {
       logActivity({
-        userId: req.user ? req.user.id : null,
+        performedBy: req.user ? req.user.id : null,
         action: 'BULK_IMPORT_CLIENTS',
         entityType: 'client',
         entityId: null,

@@ -327,6 +327,8 @@ exports.exportBills = async (req, res) => {
       paramCount++;
     }
 
+    // writeoff data lives in bill_writeoffs (separate table), not on bills itself.
+    // Each bill can have at most one write-off row (enforced by writeOffBill controller).
     const billsResult = await query(
       `SELECT
         b.id as bill_id,
@@ -341,13 +343,14 @@ exports.exportBills = async (req, res) => {
         b.status,
         b.payment_status,
         u.full_name as created_by,
-        b.writeoff_amount,
-        b.writeoff_date,
-        b.writeoff_notes
+        bwo.writeoff_amount,
+        bwo.writeoff_date,
+        bwo.notes as writeoff_notes
       FROM bills b
-      LEFT JOIN header_master h ON b.header_id = h.id
-      LEFT JOIN clients_master c ON b.client_id = c.id
-      LEFT JOIN users u ON b.created_by = u.id
+      LEFT JOIN header_master h   ON h.id = b.header_id
+      LEFT JOIN clients_master c  ON c.id = b.client_id
+      LEFT JOIN users u           ON u.id = b.created_by
+      LEFT JOIN bill_writeoffs bwo ON bwo.bill_id = b.id
       ${whereClause}
       ORDER BY b.bill_date DESC`,
       params

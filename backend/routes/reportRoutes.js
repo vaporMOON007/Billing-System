@@ -3,9 +3,10 @@ const router = express.Router();
 const reportController = require('../controllers/reportController');
 const { auth, authorize } = require('../middleware/auth');
 
-// All routes require authentication and CA role
+// All routes require authentication — SUPERADMIN only
+// Matches the frontend ProtectedRoute allowedRoles={['SUPERADMIN']} on /reports
 router.use(auth);
-router.use(authorize('CA'));
+router.use(authorize('SUPERADMIN'));
 
 // Dashboard & Reports
 router.get('/dashboard-kpis', reportController.getDashboardKPIs);

@@ -1113,183 +1113,6 @@ exports.checkLock = async (req, res) => {
   }
 };
 
-// ============================================================================
-// PDF GENERATION
-// ============================================================================
-
-// @desc    Generate PDF invoice for a bill
-// @route   GET /api/bills/:id/pdf
-// @access  Private
-exports.generatePDF = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const billResult = await query(
-      `SELECT
-        b.*,
-        h.company_name, h.proprietor_name, h.address_line1, h.address_line2,
-        h.city, h.state, h.pincode, h.phone as company_phone, h.email as company_email,
-        h.gstin as company_gstin, h.pan, h.upi_id,
-        hbd.bank_name, hbd.account_number, hbd.ifsc_code, hbd.branch_name,
-        c.client_name, c.contact_person, c.gstin as client_gstin,
-        c.address_line1 as client_address_line1, c.city as client_city,
-        c.state as client_state, c.pincode as client_pincode,
-        pt.term_name as payment_term_name
-       FROM bills b
-       LEFT JOIN header_master h ON b.header_id = h.id
-       LEFT JOIN header_bank_details hbd ON hbd.id = b.bank_account_id
-       LEFT JOIN clients_master c ON b.client_id = c.id
-       LEFT JOIN payment_terms_master pt ON b.payment_term_id = pt.id
-       WHERE b.id = $1`,
-      [id]
-    );
-
-    if (billResult.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Bill not found' });
-    }
-
-    const bill = billResult.rows[0];
-
-    const servicesResult = await query(
-      `SELECT bs.*, p.service_name, gr.rate_percentage
-       FROM bill_services bs
-       LEFT JOIN particulars_master p ON bs.particulars_id = p.id
-       LEFT JOIN gst_rates_master gr ON bs.gst_rate_id = gr.id
-       WHERE bs.bill_id = $1
-       ORDER BY bs.id`,
-      [id]
-    );
-
-    const services = servicesResult.rows;
-    const PDFDocument = require('pdfkit');
-    const doc = new PDFDocument({ margin: 50, size: 'A4' });
-
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="invoice-${bill.bill_no}.pdf"`);
-    doc.pipe(res);
-
-    // Company Header
-    doc.fontSize(18).font('Helvetica-Bold').text(bill.company_name || '', { align: 'center' });
-    doc.fontSize(9).font('Helvetica').text(bill.address_line1 || '', { align: 'center' });
-    if (bill.city) doc.text(`${bill.city}, ${bill.state} - ${bill.pincode}`, { align: 'center' });
-    doc.text(`GSTIN: ${bill.company_gstin || ''}  |  PAN: ${bill.pan || ''}`, { align: 'center' });
-    if (bill.company_phone) doc.text(`Phone: ${bill.company_phone}`, { align: 'center' });
-    doc.moveDown(0.5);
-    doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke();
-    doc.moveDown(0.5);
-
-    // Invoice Title
-    doc.fontSize(14).font('Helvetica-Bold').text('TAX INVOICE', { align: 'center', underline: true });
-    doc.moveDown(0.5);
-
-    // Bill Info Row
-    doc.fontSize(10).font('Helvetica');
-    const billInfoY = doc.y;
-    doc.text(`Invoice No: ${bill.bill_no || ''}`, 50, billInfoY);
-    doc.text(`Date: ${new Date(bill.bill_date).toLocaleDateString('en-IN')}`, 350, billInfoY);
-    doc.moveDown(0.5);
-    const row2Y = doc.y;
-    if (bill.payment_term_name) doc.text(`Payment Terms: ${bill.payment_term_name}`, 50, row2Y);
-    if (bill.due_date) doc.text(`Due Date: ${new Date(bill.due_date).toLocaleDateString('en-IN')}`, 350, row2Y);
-    doc.moveDown(0.8);
-
-    // Client Details
-    if (bill.client_name) {
-      doc.font('Helvetica-Bold').text('Bill To:');
-      doc.font('Helvetica').text(bill.client_name);
-      if (bill.contact_person) doc.text(bill.contact_person);
-      if (bill.client_address_line1) doc.text(bill.client_address_line1);
-      if (bill.client_city) doc.text(`${bill.client_city}, ${bill.client_state} - ${bill.client_pincode}`);
-      if (bill.client_gstin) doc.text(`GSTIN: ${bill.client_gstin}`);
-      doc.moveDown(0.5);
-    }
-
-    doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke();
-    doc.moveDown(0.3);
-
-    // Services Table Header
-    const tableHeaderY = doc.y;
-    doc.font('Helvetica-Bold').fontSize(9);
-    doc.text('Sr', 50, tableHeaderY, { width: 25 });
-    doc.text('Description', 75, tableHeaderY, { width: 200 });
-    doc.text('Amount', 285, tableHeaderY, { width: 70, align: 'right' });
-    doc.text('GST%', 365, tableHeaderY, { width: 50, align: 'right' });
-    doc.text('GST Amt', 425, tableHeaderY, { width: 65, align: 'right' });
-    doc.text('Total', 495, tableHeaderY, { width: 50, align: 'right' });
-    doc.moveDown(0.3);
-    doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke();
-    doc.moveDown(0.3);
-
-    // Services Rows
-    let subtotal = 0;
-    let totalGST = 0;
-    doc.font('Helvetica').fontSize(9);
-
-    services.forEach((service, i) => {
-      const rowY = doc.y;
-      const amt = parseFloat(service.amount) || 0;
-      const gstPct = parseFloat(service.rate_percentage) || 0;
-      const gstAmt = amt * (gstPct / 100);
-      const lineTotal = amt + gstAmt;
-      subtotal += amt;
-      totalGST += gstAmt;
-
-      const serviceName = service.particulars_other || service.service_name || '';
-
-      doc.text(`${i + 1}`, 50, rowY, { width: 25 });
-      doc.font('Helvetica').fontSize(9).fillColor('black')
-         .text(serviceName, 75, rowY, { width: 200 });
-
-      // Save Y after service name so description can be drawn directly below it
-      const afterNameY = doc.y;
-
-      // Draw numeric columns at the same row start
-      doc.text(amt.toFixed(2), 285, rowY, { width: 70, align: 'right' });
-      doc.text(`${gstPct}%`, 365, rowY, { width: 50, align: 'right' });
-      doc.text(gstAmt.toFixed(2), 425, rowY, { width: 65, align: 'right' });
-      doc.text(lineTotal.toFixed(2), 495, rowY, { width: 50, align: 'right' });
-
-      if (service.description) {
-        // Draw description indented below the service name
-        doc.font('Helvetica-Oblique').fontSize(8).fillColor('#555555')
-           .text(service.description, 77, afterNameY, { width: 196 });
-        doc.font('Helvetica').fontSize(9).fillColor('black');
-        doc.moveDown(0.3);
-      } else {
-        doc.moveDown(0.8);
-      }
-    });
-
-    doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke();
-    doc.moveDown(0.3);
-
-    // Totals
-    doc.font('Helvetica').fontSize(10);
-    doc.text(`Subtotal: ₹${subtotal.toFixed(2)}`, { align: 'right' });
-    doc.text(`Total GST: ₹${totalGST.toFixed(2)}`, { align: 'right' });
-    doc.font('Helvetica-Bold').fontSize(11);
-    doc.text(`TOTAL: ₹${(subtotal + totalGST).toFixed(2)}`, { align: 'right' });
-    doc.moveDown(1);
-
-    // Bank Details
-    if (bill.bank_name) {
-      doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke();
-      doc.moveDown(0.5);
-      doc.font('Helvetica-Bold').fontSize(9).text('Bank Details:');
-      doc.font('Helvetica').fontSize(9);
-      doc.text(`Bank: ${bill.bank_name}  |  A/C No: ${bill.account_number}`);
-      doc.text(`IFSC: ${bill.ifsc_code}  |  Branch: ${bill.branch_name || ''}`);
-      if (bill.upi_id) doc.text(`UPI ID: ${bill.upi_id}`);
-    }
-
-    doc.end();
-  } catch (error) {
-    console.error('Generate PDF error:', error);
-    if (!res.headersSent) {
-      res.status(500).json({ success: false, message: 'Failed to generate PDF', error: error.message });
-    }
-  }
-};
 
 // ============================================================================
 // EMAIL
@@ -1375,86 +1198,8 @@ exports.sendEmail = async (req, res) => {
 };
 
 // ============================================================================
-// SERVICE MANAGEMENT (Individual service add/delete on a bill)
+// SERVICE MANAGEMENT
 // ============================================================================
-
-// @desc    Add a service to an existing DRAFT bill
-// @route   POST /api/bills/:billId/services
-// @access  Private
-exports.addServiceToBill = async (req, res) => {
-  const client = await require('../config/database').pool.connect();
-  try {
-    const { billId } = req.params;
-    const { particulars_id, particulars_other, description, service_date, service_year, amount, gst_rate_id } = req.body;
-
-    await client.query('BEGIN');
-
-    const billCheck = await client.query('SELECT status FROM bills WHERE id = $1', [billId]);
-    if (billCheck.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ success: false, message: 'Bill not found' });
-    }
-    if (billCheck.rows[0].status === 'FINALIZED') {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ success: false, message: 'Cannot modify a finalized bill' });
-    }
-
-    // Get next sr_no for this bill
-    const srResult = await client.query(
-      'SELECT COALESCE(MAX(sr_no), 0) + 1 AS next_sr FROM bill_services WHERE bill_id = $1',
-      [billId]
-    );
-    const nextSr = srResult.rows[0].next_sr;
-
-    // Insert service — gst_amount and total_amount are computed by DB triggers
-    const serviceResult = await client.query(
-      `INSERT INTO bill_services
-       (bill_id, sr_no, particulars_id, particulars_other, description, service_date, service_year, amount, gst_rate_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [billId, nextSr, particulars_id, particulars_other || null,
-       description || null, service_date || null, service_year || null, amount, gst_rate_id]
-    );
-
-    await client.query('COMMIT');
-
-    // Look up service name + bill display_ref for the audit log (fire-and-forget)
-    const addedService = serviceResult.rows[0];
-    query(
-      `SELECT COALESCE(b.bill_no, h.bill_prefix || '-DRAFT-' || b.id::text) AS display_ref,
-              p.service_name
-       FROM bills b
-       LEFT JOIN header_master h ON h.id = b.header_id
-       LEFT JOIN particulars_master p ON p.id = $2
-       WHERE b.id = $1`,
-      [billId, particulars_id]
-    ).then(infoResult => {
-      const info = infoResult.rows[0] || {};
-      const serviceName = info.service_name || particulars_other || 'Service';
-      logActivity({
-        performedBy: req.user.id,
-        action: 'ADD_SERVICE',
-        entityType: 'SERVICE',
-        entityId: addedService.id,
-        description: `Added service "${serviceName}" — ₹${parseFloat(amount).toFixed(2)}`,
-        metadata: {
-          bill_id:      parseInt(billId),
-          bill_no:      info.display_ref || null,
-          service_id:   addedService.id,
-          service_name: serviceName,
-          amount:       parseFloat(amount),
-        },
-      });
-    }).catch(() => {});
-
-    res.status(201).json({ success: true, message: 'Service added successfully', data: addedService });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Add service error:', error);
-    res.status(500).json({ success: false, message: 'Failed to add service', error: error.message });
-  } finally {
-    client.release();
-  }
-};
 
 // @desc    Delete a service from a DRAFT bill
 // @route   DELETE /api/bills/services/:serviceId
@@ -1694,12 +1439,32 @@ exports.mergeBills = async (req, res) => {
     const ptIds   = [...new Set(sourceBills.map(b => b.payment_term_id).filter(Boolean))];
     const ptId    = ptIds.length >= 1 ? ptIds[0] : sourceBills[0].payment_term_id;
 
+    // Resolve bank_account_id for the merged bill.
+    // bank_account_id is NOT NULL — omitting it caused a constraint violation crash.
+    // Strategy: prefer the primary account for the resolved header; fall back to the
+    // first source bill's account if no primary is set.
+    const primaryBankResult = await client.query(
+      `SELECT id FROM header_bank_details WHERE header_id = $1 AND is_primary = true LIMIT 1`,
+      [headerId]
+    );
+    const mergedBankAccountId = primaryBankResult.rows.length > 0
+      ? primaryBankResult.rows[0].id
+      : sourceBills[0].bank_account_id;
+
+    if (!mergedBankAccountId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: 'No bank account found for the selected company. Please add a bank account before merging.'
+      });
+    }
+
     // Create the merged DRAFT bill — bill_no stays NULL until finalized
     const mergedBillResult = await client.query(
-      `INSERT INTO bills (header_id, client_id, bill_date, due_date, financial_year, payment_term_id, notes, created_by, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'DRAFT')
+      `INSERT INTO bills (header_id, client_id, bill_date, due_date, financial_year, payment_term_id, notes, created_by, status, bank_account_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'DRAFT', $9)
        RETURNING *`,
-      [headerId, clientId, earliestDate, latestDueDate, financialYear, ptId, notes || null, userId]
+      [headerId, clientId, earliestDate, latestDueDate, financialYear, ptId, notes || null, userId, mergedBankAccountId]
     );
     const mergedBill = mergedBillResult.rows[0];
 

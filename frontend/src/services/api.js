@@ -92,7 +92,6 @@ export const billAPI = {
   updateBill: (id, billData, override = false) => api.put(`/bills/${id}`, { ...billData, override_edit: override }),
   deleteBill: (id) => api.delete(`/bills/${id}`),
   finalizeBill: (id) => api.put(`/bills/${id}/finalize`),
-  generatePDF: (id) => api.get(`/bills/${id}/pdf`, { responseType: 'blob' }),
   sendEmail: (id, emailData) => api.post(`/bills/${id}/email`, emailData),
   deleteService: (serviceId) => api.delete(`/bills/services/${serviceId}`),
   mergeBills: (data) => api.post('/bills/merge', data),

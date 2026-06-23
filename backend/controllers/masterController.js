@@ -8,8 +8,6 @@ const { query } = require('../config/database');
 // @route   POST /api/masters/headers
 // @access  Private
 exports.createHeader = async (req, res) => {
-  const client = await require('../config/database').pool.connect();
-  
   try {
     const {
       company_name,
@@ -31,68 +29,46 @@ exports.createHeader = async (req, res) => {
     const gstinValue = gstin && gstin.trim() !== '' ? gstin.trim() : null;
     const panValue   = pan   && pan.trim()   !== '' ? pan.trim()   : null;
 
-    // Check bill_prefix uniqueness
-    if (bill_prefix) {
-      const prefixCheck = await query(
-        'SELECT id FROM header_master WHERE UPPER(bill_prefix) = UPPER($1)',
-        [bill_prefix]
-      );
-      if (prefixCheck.rows.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: `Bill prefix "${bill_prefix}" is already used by another company. Please choose a unique prefix.`
-        });
-      }
+    // Resolve the final prefix upfront (user-supplied or auto-generated from company name)
+    const resolvedPrefix = (bill_prefix && bill_prefix.trim() !== '')
+      ? bill_prefix.trim().toUpperCase()
+      : company_name.substring(0, 3).toUpperCase();
+
+    // Check uniqueness on the resolved prefix — covers both paths
+    const prefixCheck = await query(
+      'SELECT id FROM header_master WHERE UPPER(bill_prefix) = $1',
+      [resolvedPrefix]
+    );
+    if (prefixCheck.rows.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Bill prefix "${resolvedPrefix}" is already used by another company. Please provide a different prefix in the Bill Prefix field.`
+      });
     }
 
-    await client.query('BEGIN');
-
-    // Insert header
-    const headerResult = await client.query(
+    // Insert header — bank accounts are added separately via POST /headers/:id/bank-accounts
+    const headerResult = await query(
       `INSERT INTO header_master
        (company_name, proprietor_name, address_line1, address_line2, city, state,
         pincode, phone, email, gstin, pan, bill_prefix, upi_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING *`,
       [company_name, proprietor_name, address_line1, address_line2, city, state,
-       pincode, phone, email, gstinValue, panValue, bill_prefix || company_name.substring(0, 3).toUpperCase(), upi_id]
+       pincode, phone, email, gstinValue, panValue, resolvedPrefix, upi_id]
     );
-
-    const header = headerResult.rows[0];
-
-    // Insert bank details
-    const {
-      bank_name,
-      account_holder_name,
-      account_number,
-      ifsc_code,
-      branch_name
-    } = req.body;
-
-    await client.query(
-      `INSERT INTO header_bank_details
-       (header_id, bank_name, account_holder_name, account_number, ifsc_code, branch_name)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [header.id, bank_name, account_holder_name, account_number, ifsc_code, branch_name]
-    );
-
-    await client.query('COMMIT');
 
     res.status(201).json({
       success: true,
       message: 'Company created successfully',
-      data: header
+      data: headerResult.rows[0]
     });
   } catch (error) {
-    await client.query('ROLLBACK');
     console.error('Create header error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to create company',
       error: error.message
     });
-  } finally {
-    client.release();
   }
 };
 

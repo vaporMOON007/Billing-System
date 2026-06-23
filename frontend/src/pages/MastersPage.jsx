@@ -93,22 +93,12 @@ const MastersPage = () => {
   };
 
   const handleEdit = async (item) => {
-    // For companies, fetch full record including bank details from getHeaderById
     if (activeTab === 'company') {
       try {
+        // Fetch full record so the form has all fields (bank_details array is
+        // managed separately via the expandable row, not in the edit form)
         const res = await masterAPI.getHeaderById(item.id);
-        const full = res.data.data;
-        // Flatten bank_details into the top level so form fields like
-        // editingItem?.bank_name / account_number etc. work directly
-        const bank = full.bank_details || {};
-        const bankFields = {
-          bank_name:           bank.bank_name           || '',
-          account_holder_name: bank.account_holder_name || '',
-          account_number:      bank.account_number      || '',
-          ifsc_code:           bank.ifsc_code           || '',
-          branch_name:         bank.branch_name         || '',
-        };
-        setEditingItem({ ...full, ...bankFields });
+        setEditingItem(res.data.data);
       } catch (err) {
         console.error('Failed to load company details:', err);
         toast.error('Failed to load company details');
@@ -359,13 +349,23 @@ const MastersPage = () => {
             pan: formData.get('pan'),
             bill_prefix: formData.get('bill_prefix'),
             upi_id: formData.get('upi_id'),
-            // Bank accounts are managed separately via the bank accounts section below the table
-            // — do not submit bank fields here, they are ignored by the backend since migration 006
+            // Bank accounts are managed separately via the expandable bank accounts section
           };
           if (editingItem) {
             await masterAPI.updateHeader(editingItem.id, companyData);
           } else {
-            await masterAPI.createHeader(companyData);
+            const createRes = await masterAPI.createHeader(companyData);
+            const newCompanyId = createRes.data.data.id;
+            toast.success('Company created! Add a bank account below to start creating bills.');
+            setShowModal(false);
+            await loadData();
+            // Auto-expand the new company's bank accounts row and open Add Bank Account modal
+            setExpandedCompanyId(newCompanyId);
+            setBankAccounts(prev => ({ ...prev, [newCompanyId]: [] }));
+            setBankModalCompanyId(newCompanyId);
+            setEditingBankAccount(null);
+            setShowBankModal(true);
+            return; // skip the generic toast + loadData below
           }
           break;
 
@@ -901,8 +901,7 @@ const MastersPage = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">UPI ID</label>
-                  <input type="text" name="upi_id" value={editingItem?.upi_id}
-                    onChange={(e) => setEditingItem({ ...editingItem, upi_id: e.target.value })}
+                  <input type="text" name="upi_id" defaultValue={editingItem?.upi_id}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500" />
                 </div>
               </div>

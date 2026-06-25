@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Plus, Save, Eye, AlertTriangle, Lock, CreditCard, RefreshCw } from 'lucide-react';
+import { Plus, Save, Eye, AlertTriangle, Lock, CreditCard, RefreshCw, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { FormSkeleton } from '../components/common/SkeletonLoader';
 import { SuccessCheckmark } from '../components/common/SuccessAnimation';
@@ -32,6 +32,18 @@ const ServicesFormPage = () => {
 
   // NEW: Unsaved changes tracking
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  // Back button warning modal (unsaved changes guard)
+  const [showBackWarningModal, setShowBackWarningModal] = useState(false);
+
+  // Duplicate service row warning modal
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [duplicateRowNumbers, setDuplicateRowNumbers] = useState([]);
+
+  // Similar client warning modal (Option B — clickable existing clients)
+  const [showSimilarClientModal, setShowSimilarClientModal] = useState(false);
+  const [similarClients, setSimilarClients] = useState([]);
+  const [pendingClientData, setPendingClientData] = useState(null);
 
   // Default GST rate ID (resolved to the 18% entry after master data loads)
   const [defaultGstRateId, setDefaultGstRateId] = useState('');
@@ -108,12 +120,14 @@ const ServicesFormPage = () => {
     }
   }, [editBillId, user?.id]);
 
-  // Preview bill number when company or date changes
+  // Preview bill number when company or date changes.
+  // Runs in create mode AND DRAFT edit mode (company can change in both).
+  // Suppressed in overrideMode (finalized bill — bill_no already assigned).
   useEffect(() => {
-    if (formData.header_id && formData.bill_date && !editMode) {
+    if (formData.header_id && formData.bill_date && !overrideMode) {
       previewBillNumber();
     }
-  }, [formData.header_id, formData.bill_date, editMode]);
+  }, [formData.header_id, formData.bill_date, overrideMode]);
 
   const previewBillNumber = async () => {
     try {
@@ -368,10 +382,9 @@ const ServicesFormPage = () => {
     }
     
     if (duplicates.length > 0) {
-      const confirmed = window.confirm(
-        `Warning: Service at row ${duplicates[0] + 1} appears to be a duplicate. Continue anyway?`
-      );
-      if (!confirmed) return false;
+      setDuplicateRowNumbers(duplicates.map(i => i + 1));
+      setShowDuplicateModal(true);
+      return false;
     }
     
     return true;
@@ -408,47 +421,63 @@ const ServicesFormPage = () => {
       };
 
       const response = await clientAPI.createClient(clientData);
-      
+
       if (response.data.warning) {
-        // Similar clients found
-        const confirm = window.confirm(
-          `Similar clients found:\n${response.data.similar_clients
-            .map((c) => c.client_name)
-            .join('\n')}\n\nDo you still want to create this client?`
-        );
-        
-        if (!confirm) {
-          return;
-        }
-        
-        // Create anyway
-        const finalResponse = await clientAPI.createClient(clientData);
-        const newClient = finalResponse.data.data;
-        setClients([...clients, newClient]);
-        
-        // ✅ AUTO-SET THE NEW CLIENT ID (now using correct formData)
-        setFormData(prev => ({ ...prev, client_id: newClient.id.toString() }));
-        console.log("✅ New client created! ID:", newClient.id, "Name:", newClient.client_name);
-        console.log("✅ FormData updated with client_id:", newClient.id.toString());
-        
-        toast.success('Client created successfully');
-      } else {
-        const newClient = response.data.data;
-        setClients([...clients, newClient]);
-        
-        // ✅ AUTO-SET THE NEW CLIENT ID (now using correct formData)
-        setFormData(prev => ({ ...prev, client_id: newClient.id.toString() }));
-        console.log("✅ New client created! ID:", newClient.id, "Name:", newClient.client_name);
-        console.log("✅ FormData updated with client_id:", newClient.id.toString());
-        
-        toast.success('Client created successfully');
+        // Stash clientData and show the similar client modal (Option B — clickable names).
+        // The "Add New Client" modal stays open behind it.
+        setPendingClientData(clientData);
+        setSimilarClients(response.data.similar_clients || []);
+        setShowSimilarClientModal(true);
+        return;
       }
-      
+
+      // No warning — straight creation
+      const newClient = response.data.data;
+      setClients(prev => [...prev, newClient]);
+      setFormData(prev => ({ ...prev, client_id: newClient.id.toString() }));
+      toast.success('Client created successfully');
       setShowClientModal(false);
       setNewClientName('');
     } catch (error) {
       console.error('Failed to create client:', error);
       toast.error('Failed to create client');
+    }
+  };
+
+  // User clicked an existing similar client — use it instead of creating a new one.
+  const handleSimilarClientSelect = (client) => {
+    // Ensure the client exists in the dropdown options list
+    setClients(prev => (prev.find(c => c.id === client.id) ? prev : [...prev, client]));
+    setFormData(prev => ({ ...prev, client_id: client.id.toString() }));
+    // Close both modals
+    setShowSimilarClientModal(false);
+    setShowClientModal(false);
+    setNewClientName('');
+    setPendingClientData(null);
+    setSimilarClients([]);
+    toast.success(`Selected: ${client.client_name}`);
+  };
+
+  // User chose to create the new client despite the similarity warning.
+  const handleCreateClientAnyway = async () => {
+    if (!pendingClientData) return;
+    try {
+      const finalResponse = await clientAPI.createClient(pendingClientData);
+      const newClient = finalResponse.data.data;
+      if (newClient?.id) {
+        setClients(prev => [...prev, newClient]);
+        setFormData(prev => ({ ...prev, client_id: newClient.id.toString() }));
+        toast.success('Client created successfully');
+      }
+    } catch (error) {
+      console.error('Failed to create client:', error);
+      toast.error('Failed to create client');
+    } finally {
+      setShowSimilarClientModal(false);
+      setShowClientModal(false);
+      setNewClientName('');
+      setPendingClientData(null);
+      setSimilarClients([]);
     }
   };
 
@@ -472,25 +501,14 @@ const ServicesFormPage = () => {
     };
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    // Require client
-    if (!formData.client_id) {
-      toast.error('Client Name is required. Please select a client before saving.');
-      return;
-    }
-
-    // NEW: Validate services first
-    if (!validateServices()) {
-      return;
-    }
-
+  // Core bill save logic — called by handleSubmit (normal path) and
+  // handleDuplicateConfirm (user chose to proceed past the duplicate warning).
+  const submitBill = async () => {
     setLoading(true);
     setHasUnsavedChanges(false);
 
     try {
-      // Validate services
+      // Validate services (field completeness only — duplicate check already done)
       const invalidService = services.find(
         (s) => !s.particulars_id || !s.amount || !s.gst_rate_id
       );
@@ -504,6 +522,9 @@ const ServicesFormPage = () => {
       if (editMode) {
         // UPDATE existing bill
         const billData = {
+          // Include header_id on DRAFT edits so company reassignment reaches the backend.
+          // Excluded on overrideMode (finalized bill) — company cannot change on finalized bills.
+          ...(!overrideMode && { header_id: parseInt(formData.header_id) }),
           bill_date: formData.bill_date.toISOString().split('T')[0],
           payment_term_id: parseInt(formData.payment_term_id),
           client_id: formData.client_id ? parseInt(formData.client_id) : null,
@@ -522,7 +543,6 @@ const ServicesFormPage = () => {
 
         await billAPI.updateBill(editBillId, billData, overrideMode);
 
-        // NEW: Show animation
         setShowSuccessAnimation(true);
         setTimeout(() => {
           toast.success(overrideMode ? 'Bill override edit saved!' : 'Bill updated successfully!');
@@ -558,8 +578,6 @@ const ServicesFormPage = () => {
         const response = await billAPI.createBill(billData);
         const createdBill = response.data.data;
 
-        // Show animation, then navigate with the bill's ID (always available,
-        // avoids the extra getBillByNumber lookup that can fail).
         setShowSuccessAnimation(true);
         setTimeout(() => {
           toast.success(`Bill ${createdBill.display_ref || createdBill.bill_no || '#' + createdBill.id} created successfully!`);
@@ -573,6 +591,41 @@ const ServicesFormPage = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!formData.client_id) {
+      toast.error('Client Name is required. Please select a client before saving.');
+      return;
+    }
+
+    if (!validateServices()) return;
+
+    await submitBill();
+  };
+
+  // Called by the duplicate warning modal's "Continue Anyway" button.
+  const handleDuplicateConfirm = async () => {
+    setShowDuplicateModal(false);
+    await submitBill();
+  };
+
+  // Back button — returns to the Print Bill list.
+  // No need to call releaseLock() manually: useEditLock's unmount cleanup
+  // fires automatically when navigate() causes the component to unmount.
+  const handleBack = () => {
+    if (hasUnsavedChanges) {
+      setShowBackWarningModal(true);
+      return;
+    }
+    navigate('/print-bill');
+  };
+
+  const handleBackConfirm = () => {
+    setShowBackWarningModal(false);
+    navigate('/print-bill');
   };
 
   const totals = calculateTotals();
@@ -630,18 +683,20 @@ const ServicesFormPage = () => {
                 label="Bill For (Company)"
                 value={formData.header_id}
                 onChange={(value) => {
-                  if (!editMode) {
+                  // Allow company change when creating OR when editing a DRAFT bill.
+                  // Blocked only on override-edit of FINALIZED bills (overrideMode).
+                  if (!overrideMode) {
                     handleCompanyChange(value);
                   }
                 }}
                 options={headerOptions}
                 placeholder="Select Company"
-                disabled={editMode}
+                disabled={overrideMode}
                 required
               />
 
-              {/* Bill Number */}
-              {!editMode && (
+              {/* Bill Number — shown in create mode and DRAFT edit mode */}
+              {!overrideMode && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Bill Number
@@ -867,7 +922,20 @@ const ServicesFormPage = () => {
           </div>
 
           {/* Submit Button */}
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between">
+            {/* Back button — only in edit mode */}
+            {editMode ? (
+              <button
+                type="button"
+                onClick={handleBack}
+                className="flex items-center space-x-2 px-4 py-3 text-primary-600 border border-primary-300 rounded-lg hover:bg-primary-50 transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Back to Bills</span>
+              </button>
+            ) : (
+              <div /> /* spacer to keep submit button right-aligned on create form */
+            )}
             <button
               type="submit"
               disabled={loading || (editMode && !overrideMode && !lockStatus.canEdit)}
@@ -887,7 +955,7 @@ const ServicesFormPage = () => {
                 }
               </span>
             </button>
-          </div>
+          </div> {/* end submit row */}
         </form>
       )}
 
@@ -1079,6 +1147,120 @@ const ServicesFormPage = () => {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Back Button — Unsaved Changes Warning Modal */}
+      <Modal
+        isOpen={showBackWarningModal}
+        onClose={() => setShowBackWarningModal(false)}
+        title="Unsaved Changes"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start space-x-3">
+            <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-gray-700">
+              You have unsaved changes. If you go back now, your changes will be lost.
+            </p>
+          </div>
+          <div className="flex justify-end space-x-3 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowBackWarningModal(false)}
+              className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm"
+            >
+              Stay
+            </button>
+            <button
+              type="button"
+              onClick={handleBackConfirm}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm"
+            >
+              Leave Anyway
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Duplicate Service Row Warning Modal */}
+      <Modal
+        isOpen={showDuplicateModal}
+        onClose={() => setShowDuplicateModal(false)}
+        title="Duplicate Service Detected"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start space-x-3">
+            <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm text-gray-700">
+                Row {duplicateRowNumbers.join(', ')} appears to be a duplicate — same service, year, and date as another row.
+              </p>
+              <p className="text-sm text-gray-500 mt-1">Do you want to continue anyway?</p>
+            </div>
+          </div>
+          <div className="flex justify-end space-x-3 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowDuplicateModal(false)}
+              className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm"
+            >
+              Go Back
+            </button>
+            <button
+              type="button"
+              onClick={handleDuplicateConfirm}
+              className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm"
+            >
+              Continue Anyway
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Similar Client Warning Modal (Option B — clickable existing clients) */}
+      <Modal
+        isOpen={showSimilarClientModal}
+        onClose={() => setShowSimilarClientModal(false)}
+        title="Similar Clients Found"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            The following clients already exist with similar names. Select one to use it, or create a new client anyway.
+          </p>
+          <div className="space-y-2">
+            {similarClients.map(client => (
+              <button
+                key={client.id}
+                type="button"
+                onClick={() => handleSimilarClientSelect(client)}
+                className="w-full text-left px-4 py-3 rounded-lg border border-gray-200 hover:border-primary-400 hover:bg-primary-50 transition-colors"
+              >
+                <p className="text-sm font-medium text-gray-900">{client.client_name}</p>
+                {client.contact_person && (
+                  <p className="text-xs text-gray-500 mt-0.5">{client.contact_person}</p>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="flex justify-end space-x-3 pt-2 border-t">
+            <button
+              type="button"
+              onClick={() => setShowSimilarClientModal(false)}
+              className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm"
+            >
+              Go Back
+            </button>
+            <button
+              type="button"
+              onClick={handleCreateClientAnyway}
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm"
+            >
+              Create New Anyway
+            </button>
+          </div>
+        </div>
       </Modal>
 
       {/* Success Animation */}

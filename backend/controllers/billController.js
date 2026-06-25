@@ -546,6 +546,17 @@ exports.updateBill = async (req, res) => {
       });
     }
 
+    // Guard: if company is changing, bank_account_id MUST be provided.
+    // Checked here — OUTSIDE the bank_account_id block — so it fires even when
+    // bank_account_id is completely absent from the request (not just undefined).
+    if (header_id && parseInt(header_id) !== bill.header_id && !bank_account_id) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: 'When changing company, you must also select a bank account from the new company.'
+      });
+    }
+
     // Bank account permission:
     // Any user can change bank account on DRAFT. Only SUPERADMIN can change on FINALIZED.
     let resolvedBankAccountId = undefined; // undefined = don't touch it
@@ -556,8 +567,9 @@ exports.updateBill = async (req, res) => {
           message: 'Only SUPERADMIN can change the bank account on a finalized bill.'
         });
       }
-      // Validate the bank account belongs to the bill's company (header_id doesn't change on update)
-      const effectiveHeaderId = bill.header_id;
+      // Use the incoming header_id if company is being changed, otherwise fall back to existing.
+      // header_id CAN change on DRAFT bills (company reassignment feature).
+      const effectiveHeaderId = header_id || bill.header_id;
       const bankCheck = await client.query(
         `SELECT id FROM header_bank_details WHERE id = $1 AND header_id = $2`,
         [bank_account_id, effectiveHeaderId]
@@ -565,7 +577,7 @@ exports.updateBill = async (req, res) => {
       if (bankCheck.rows.length === 0) {
         return res.status(400).json({
           success: false,
-          message: 'The selected bank account does not belong to this bill\'s company.'
+          message: 'The selected bank account does not belong to this company.'
         });
       }
       resolvedBankAccountId = parseInt(bank_account_id);

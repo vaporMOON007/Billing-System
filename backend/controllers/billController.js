@@ -674,6 +674,20 @@ exports.updateBill = async (req, res) => {
       );
       oldServicesForLog = oldSvcResult.rows;
 
+      // Status-flip workaround for the chk_finalized_bill_has_value constraint.
+      // trigger_update_bill_totals fires FOR EACH ROW on DELETE — when the last
+      // service row is deleted the trigger recalculates total = 0 and tries to
+      // stamp that on the bill. If the bill is still FINALIZED/PAID the constraint
+      // blocks it. Temporarily setting DRAFT lets the trigger run freely during
+      // the DELETE window; status is restored after all new rows are inserted.
+      // (Same pattern used in deleteBill — see that function for prior art.)
+      if (overrideEdit) {
+        await client.query(
+          "UPDATE bills SET status = 'DRAFT' WHERE id = $1",
+          [id]
+        );
+      }
+
       await client.query('DELETE FROM bill_services WHERE bill_id = $1', [id]);
 
       for (let i = 0; i < services.length; i++) {
@@ -693,6 +707,15 @@ exports.updateBill = async (req, res) => {
             service.amount,
             service.gst_rate_id
           ]
+        );
+      }
+
+      // Restore original status now that all new service rows are in place
+      // and the trigger has recalculated the correct total.
+      if (overrideEdit) {
+        await client.query(
+          'UPDATE bills SET status = $1 WHERE id = $2',
+          [bill.status, id]
         );
       }
     }

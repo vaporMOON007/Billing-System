@@ -646,6 +646,20 @@ exports.updateBill = async (req, res) => {
       });
     }
 
+    // Guard: override edit on a FINALIZED bill cannot result in zero total.
+    // Checked here (before DELETE) so we can ROLLBACK cleanly and return a clear message
+    // instead of letting the DB constraint chk_finalized_bill_has_value fire a raw crash.
+    if (overrideEdit && services && services.length > 0) {
+      const newTotal = services.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+      if (newTotal <= 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          success: false,
+          message: 'Override edit rejected: total invoice value cannot be zero on a finalized bill.'
+        });
+      }
+    }
+
     // Replace services if new list provided
     let oldServicesForLog = [];
     if (services && services.length > 0) {

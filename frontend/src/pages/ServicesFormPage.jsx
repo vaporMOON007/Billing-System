@@ -352,7 +352,7 @@ const ServicesFormPage = () => {
     
     services.forEach((service, index) => {
       // Check for empty required fields
-      if (!service.particulars_id || !service.amount || !service.gst_rate_id) {
+      if (!service.particulars_id || !service.amount || parseFloat(service.amount) <= 0 || !service.gst_rate_id) {
         errors.push(index);
       }
       

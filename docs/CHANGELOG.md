@@ -13,6 +13,13 @@ Entry format:
 
 ## 2026-10
 
+### 2026-10-11 · chore(repo) · normalize .gitignore line endings
+Why: Previous commit stored mixed CRLF/LF, which can break ignore patterns on Linux
+What: Converted .gitignore to LF only; no pattern changes
+Files: .gitignore
+DB: none
+
+
 ### 2026-10-11 · chore(workflow) · commit hook, slash commands, docs registers
 Why: One repeatable workflow: auto commits, changelog, feature and migration registers, living context file
 What: Added .githooks/commit-msg, /commit, /CAchangelog and /CAfeatures commands, docs/FEATURES.md, docs/MIGRATIONS.md, docs/decisions/, moved CONTEXT_FOR_NEW_CHAT.md to docs/ with a maintenance header

@@ -13,6 +13,13 @@ Entry format:
 
 ## 2026-10
 
+### 2026-10-12 · chore(deploy) · track start_prod.bat
+Why: Prod needs a one-click launcher next to start.py; it holds no secrets or machine-specific paths
+What: Added start_prod.bat (cd to its own folder, run python start.py, pause on error). Dev-only start_local.* stay ignored
+Files: start_prod.bat
+DB: none
+
+
 ### 2026-10-11 · chore(repo) · rename test branch to develop
 Why: prod pulls test by hand, so the name was misleading; main = prod, develop = integration
 What: Local branch renamed test -> develop; main fast-forwarded to match; context file, feature register and /commit example updated. Not pushed yet

@@ -1,5 +1,5 @@
 ---
-description: Commit the approved items in this chat to the given branch (e.g. /commit test). Every commit includes a CHANGELOG entry.
+description: Commit the approved items in this chat to the given branch (e.g. /commit develop). Every commit includes a CHANGELOG entry.
 argument-hint: <branch-name>
 ---
 

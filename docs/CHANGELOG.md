@@ -13,6 +13,13 @@ Entry format:
 
 ## 2026-10
 
+### 2026-10-11 · chore(repo) · rename test branch to develop
+Why: prod pulls test by hand, so the name was misleading; main = prod, develop = integration
+What: Local branch renamed test -> develop; main fast-forwarded to match; context file, feature register and /commit example updated. Not pushed yet
+Files: docs/CONTEXT_FOR_NEW_CHAT.md, docs/FEATURES.md, .claude/commands/commit.md
+DB: none
+
+
 ### 2026-10-11 · chore(workflow) · /commit keeps the context file current
 Why: docs/CONTEXT_FOR_NEW_CHAT.md must not go stale
 What: /commit now updates the context file (and its Last reviewed date) when a change affects architecture, DB, rules, roles, deployment or known issues

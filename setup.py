@@ -21,9 +21,9 @@ def main():
 
     # 1. Backend npm packages
     backend_path = os.path.join(BASE_DIR, "backend")
-    print("\n[1/2] Installing backend npm packages ...")
+    print("\n[1/2] Installing backend npm packages (npm ci - exact lockfile versions) ...")
     if os.path.isdir(backend_path):
-        result = run("npm install", cwd=backend_path)
+        result = run("npm ci", cwd=backend_path)
         if result != 0:
             print("      FAILED — check Node.js / npm is installed.")
             sys.exit(result)
@@ -35,7 +35,7 @@ def main():
     frontend_path = os.path.join(BASE_DIR, "frontend")
     print("\n[2/2] Installing frontend npm packages ...")
     if os.path.isdir(frontend_path):
-        result = run("npm install", cwd=frontend_path)
+        result = run("npm ci", cwd=frontend_path)
         if result != 0:
             print("      FAILED — check Node.js / npm is installed.")
             sys.exit(result)

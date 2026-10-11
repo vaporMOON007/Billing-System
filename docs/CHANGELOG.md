@@ -13,6 +13,13 @@ Entry format:
 
 ## 2026-10
 
+### 2026-10-11 · chore(workflow) · /commit keeps the context file current
+Why: docs/CONTEXT_FOR_NEW_CHAT.md must not go stale
+What: /commit now updates the context file (and its Last reviewed date) when a change affects architecture, DB, rules, roles, deployment or known issues
+Files: .claude/commands/commit.md
+DB: none
+
+
 ### 2026-10-11 · chore(repo) · normalize .gitignore line endings
 Why: Previous commit stored mixed CRLF/LF, which can break ignore patterns on Linux
 What: Converted .gitignore to LF only; no pattern changes

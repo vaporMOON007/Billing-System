@@ -17,5 +17,6 @@ Target branch: $ARGUMENTS
       Files: ...
       DB: migration/schema changes, or "none"
    c. If the item has a row in `docs/FEATURES.md`, set it to Done and update the date (the hash is added later by /CAchangelog). Stage that file too.
-   d. Stage `docs/CHANGELOG.md` and commit with the message `type(scope): summary` (types: feat, fix, refactor, db, docs, chore), a blank line, then a body with the why and what.
+   d. If the item changes architecture, DB shape, business rules, roles, deployment steps or known issues, update the matching section of `docs/CONTEXT_FOR_NEW_CHAT.md` and its "Last reviewed" date, and stage it.
+   e. Stage `docs/CHANGELOG.md` and commit with the message `type(scope): summary` (types: feat, fix, refactor, db, docs, chore), a blank line, then a body with the why and what.
 5. Never push. Finish by showing `git log --oneline` for the new commits.

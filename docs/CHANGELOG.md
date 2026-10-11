@@ -13,6 +13,13 @@ Entry format:
 
 ## 2026-10
 
+### 2026-10-11 · chore(repo) · update .gitignore
+Why: Keep env files and local artefacts out of git
+What: Rewrote .gitignore (adds .env variants; mostly line-ending churn elsewhere)
+Files: .gitignore
+DB: none
+
+
 ### 2026-10-11 · chore(db) · add full schema.sql, remove backup_prod.sql
 Why: Fresh installs need one complete schema; prod data dump should not live in the repo
 What: Added schema.sql (full schema); removed backup_prod.sql from the tree (still in older history)

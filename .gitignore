@@ -46,14 +46,12 @@ coverage/
 # Database
 *.sqlite
 *.db
-schema.sql
 
 # OS Files
 Thumbs.db
 .DS_Store
 
 # Package Manager
-package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
@@ -69,3 +67,13 @@ public/build/
 *.pem
 .certconfig
 CLAUDE.md
+
+# Local-only startup scripts (machine-specific, never commit)
+start_local.py
+start_local.bat
+
+# Database backups / dumps (contain real client data - never commit)
+backup*.sql
+*_backup.sql
+*.dump
+backups/

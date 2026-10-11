@@ -13,6 +13,13 @@ Entry format:
 
 ## 2026-10
 
+### 2026-10-12 · chore(repo) · ignore scratch docs
+Why: Owner wants personal/scratch notes kept out of git without untracking the core docs (CHANGELOG, FEATURES, MIGRATIONS, CONTEXT, decisions)
+What: .gitignore now ignores docs/local/ and docs/scratch/. start_local.py and start_local.bat were already ignored. No tracked file changes
+Files: .gitignore
+DB: none
+
+
 ### 2026-10-12 · chore(deploy) · track start_prod.bat
 Why: Prod needs a one-click launcher next to start.py; it holds no secrets or machine-specific paths
 What: Added start_prod.bat (cd to its own folder, run python start.py, pause on error). Dev-only start_local.* stay ignored

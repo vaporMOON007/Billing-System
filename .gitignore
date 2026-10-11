@@ -77,3 +77,7 @@ backup*.sql
 *_backup.sql
 *.dump
 backups/
+
+# Scratch / local-only docs (core docs in docs/ stay tracked)
+docs/local/
+docs/scratch/

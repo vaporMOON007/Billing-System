@@ -1,5 +1,11 @@
 # CA Firm Billing System — Full Context for New Chat
 
+> **Keep this file current.** Last reviewed: 2026-10-11.
+> Update it in the same commit whenever a change alters the architecture, DB shape, business rules, roles, deployment steps or known issues.
+> Live sources (always newer than the sections below): `docs/FEATURES.md` (status of every feature), `docs/CHANGELOG.md` (what changed, per commit), `docs/MIGRATIONS.md` (DB migrations and prod status).
+> The sections "Features Completed This Session (02 Jun 2026)", "Migrations Status" and "Next Steps" are a 2 Jun 2026 snapshot and may be stale.
+> Deployment today: prod is updated by a manual `git pull` of branch `test` on the server (plan: switch to `main`).
+
 ## Project Instructions (from CLAUDE.md)
 YOU ARE A FULL STACK DEVELOPER. SUGGEST IDEAS USED IN PRODUCTION APPLICATIONS. DON'T BE A YES-SAYER — ASK QUESTIONS BACK AND POINT OUT ISSUES. DO NOT MAKE ANY ADDITIONAL CHANGE WITHOUT CONFIRMATION AND DISCUSSION.
 

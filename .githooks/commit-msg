@@ -1,0 +1,35 @@
+#!/bin/sh
+# Rejects commits that (1) don't use type(scope): summary, or (2) don't include docs/CHANGELOG.md.
+# Exempt: merge commits, and commits whose message starts with "docs".
+MSG_FILE="$1"
+FIRST=$(head -n1 "$MSG_FILE")
+
+case "$FIRST" in
+  Merge*|docs*) exit 0 ;;
+esac
+[ -f "$(git rev-parse --git-dir)/MERGE_HEAD" ] && exit 0
+
+if ! echo "$FIRST" | grep -Eq '^(feat|fix|refactor|db|chore)(\([a-z0-9_-]+\))?: .+'; then
+  echo "COMMIT REJECTED: message must look like  type(scope): summary"
+  echo "  types: feat, fix, refactor, db, docs, chore    e.g.  fix(bills): block edit on locked bill"
+  exit 1
+fi
+
+if ! git diff --cached --name-only | grep -qx 'docs/CHANGELOG.md'; then
+  echo "COMMIT REJECTED: docs/CHANGELOG.md is not part of this commit."
+  echo "  Add an entry for this change, 'git add docs/CHANGELOG.md', then commit again."
+  exit 1
+fi
+
+if git diff --cached --name-only | grep -qx 'schema.sql'; then
+  if ! git diff --cached --name-only | grep -Eq '^migrations/.+\.sql$'; then
+    case "$FIRST" in
+      *"[no-migration]"*) ;;
+      *)
+        echo "COMMIT REJECTED: schema.sql changed but no file in migrations/ is part of this commit."
+        echo "  Add a migration, or put [no-migration] in the message if schema.sql is only being synced."
+        exit 1 ;;
+    esac
+  fi
+fi
+exit 0

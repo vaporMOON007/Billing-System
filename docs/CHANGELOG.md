@@ -13,6 +13,13 @@ Entry format:
 
 ## 2026-10
 
+### 2026-10-11 · chore(workflow) · commit hook, slash commands, docs registers
+Why: One repeatable workflow: auto commits, changelog, feature and migration registers, living context file
+What: Added .githooks/commit-msg, /commit, /CAchangelog and /CAfeatures commands, docs/FEATURES.md, docs/MIGRATIONS.md, docs/decisions/, moved CONTEXT_FOR_NEW_CHAT.md to docs/ with a maintenance header
+Files: .githooks/, .claude/commands/, docs/
+DB: none
+
+
 ### 2026-10-11 · chore(repo) · update .gitignore
 Why: Keep env files and local artefacts out of git
 What: Rewrote .gitignore (adds .env variants; mostly line-ending churn elsewhere)
